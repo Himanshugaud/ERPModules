@@ -1,0 +1,2093 @@
+# Build ERP Backend APIs Using Azure Functions + Existing Azure SQL Database
+
+Build a production-ready backend API for a multi-tenant ERP system.
+
+The database has already been designed and created in Azure SQL.
+
+IMPORTANT:
+
+* Do NOT recreate the database.
+* Do NOT redesign the existing database schema.
+* Do NOT create duplicate tables.
+* Do NOT change table names, columns, relationships, or constraints unless explicitly requested.
+* First inspect the existing database schema and generate the EF Core model/configuration based on the existing schema.
+* The backend must use Azure Functions.
+* The initial business module is Project Management.
+* The architecture must support future CRM, HR, Finance, Procurement, Inventory, and Sales modules.
+
+---
+
+# 1. Technology Stack
+
+Use:
+
+* .NET 10
+* C#
+* Azure Functions
+* HTTP Trigger Functions
+* Entity Framework Core
+* Azure SQL Database
+* Azure Blob Storage for documents
+* Azure Service Bus for asynchronous events
+* Application Insights
+* OpenTelemetry
+* Serilog or Microsoft.Extensions.Logging
+* FluentValidation
+* OpenAPI/Swagger
+* JWT/OAuth2-compatible authentication
+* Microsoft Entra ID compatibility
+
+Use async/await throughout the backend.
+
+---
+
+# 2. Existing Database
+
+The database already contains the following schemas/tables.
+
+## Core
+
+core.Organizations
+core.OrganizationSettings
+core.Departments
+core.Users
+core.Roles
+core.Permissions
+core.UserRoles
+core.RolePermissions
+core.Clients
+
+## Project Management
+
+project.ProjectStatuses
+project.ProjectPriorities
+project.Projects
+project.ProjectMembers
+project.TaskStatuses
+project.TaskPriorities
+project.Tasks
+project.TaskWatchers
+project.Milestones
+project.Sprints
+project.SprintTasks
+project.Timesheets
+project.TimesheetApprovals
+
+## Shared
+
+shared.Comments
+shared.Documents
+shared.Notifications
+shared.NotificationPreferences
+shared.AuditLogs
+shared.CustomFields
+shared.CustomFieldValues
+shared.OutboxMessages
+
+Treat this schema as the source of truth.
+
+---
+
+# 3. Backend Architecture
+
+Use a modular monolith architecture inside Azure Functions.
+
+Recommended structure:
+
+ERP.Api
+ERP.Application
+ERP.Domain
+ERP.Infrastructure
+ERP.Shared
+
+Modules:
+
+Core
+ProjectManagement
+Shared
+
+Recommended folder structure:
+
+ERP/
+│
+├── Functions/
+│
+├── Core/
+│   ├── Domain/
+│   ├── Application/
+│   ├── Infrastructure/
+│   └── Functions/
+│
+├── ProjectManagement/
+│   ├── Domain/
+│   ├── Application/
+│   ├── Infrastructure/
+│   └── Functions/
+│
+├── Shared/
+│   ├── Domain/
+│   ├── Application/
+│   └── Infrastructure/
+│
+├── Infrastructure/
+│   ├── Database/
+│   ├── Storage/
+│   ├── Messaging/
+│   └── Identity/
+│
+└── Common/
+├── Exceptions/
+├── Middleware/
+├── Validation/
+├── Pagination/
+├── Security/
+└── Extensions/
+
+Keep module boundaries clear.
+
+Do not allow Project Management code to directly depend on internal implementation details of future modules.
+
+---
+
+# 4. API Base URL
+
+All APIs must use:
+
+/api/v1
+
+Examples:
+
+GET /api/v1/projects
+
+GET /api/v1/projects/{projectId}
+
+POST /api/v1/projects
+
+Use API versioning so `/api/v2` can be introduced later without breaking existing clients.
+
+---
+
+# 5. Authentication
+
+Implement authentication using JWT/OAuth2-compatible authentication.
+
+The backend must support Microsoft Entra ID.
+
+Extract the following from the authenticated identity where available:
+
+userId
+email
+displayName
+organizationId
+roles/claims
+
+Create:
+
+ICurrentUserService
+
+with:
+
+UserId
+OrganizationId
+Email
+IsAuthenticated
+Roles
+Claims
+
+Never accept UserId or OrganizationId from the request body for authorization decisions.
+
+---
+
+# 6. Tenant Isolation
+
+This is a mandatory security requirement.
+
+Every request must execute in an organization/tenant context.
+
+Create:
+
+ITenantContext
+
+containing:
+
+OrganizationId
+UserId
+
+Every query against tenant-owned entities must automatically apply:
+
+OrganizationId == CurrentOrganizationId
+
+Never allow a request to retrieve another organization's data by changing an ID in the URL.
+
+Example:
+
+GET /api/v1/projects/{projectId}
+
+must:
+
+1. Authenticate user.
+2. Resolve OrganizationId.
+3. Retrieve project.
+4. Verify project.OrganizationId == current OrganizationId.
+5. Verify authorization.
+6. Return project.
+
+Do not trust:
+
+organizationId
+createdBy
+updatedBy
+
+from client input.
+
+---
+
+# 7. Authorization
+
+Implement permission-based authorization.
+
+Do NOT use only role-name checks.
+
+Permissions include:
+
+project.read
+project.create
+project.update
+project.delete
+
+task.read
+task.create
+task.update
+task.delete
+task.assign
+
+milestone.read
+milestone.create
+milestone.update
+milestone.delete
+
+sprint.read
+sprint.create
+sprint.update
+sprint.delete
+
+timesheet.read
+timesheet.create
+timesheet.update
+timesheet.approve
+timesheet.reject
+
+document.read
+document.create
+document.delete
+
+audit.read
+
+notification.read
+
+Create reusable authorization policies.
+
+Example:
+
+[RequirePermission("project.read")]
+
+Authorization must be enforced at the application/service level as well as at the API boundary where appropriate.
+
+---
+
+# 8. Standard API Response
+
+Use consistent responses.
+
+Successful single entity:
+
+{
+"data": {
+...
+}
+}
+
+Successful list:
+
+{
+"data": [
+...
+],
+"pagination": {
+"page": 1,
+"pageSize": 25,
+"totalItems": 100,
+"totalPages": 4
+}
+}
+
+For cursor-based pagination:
+
+{
+"data": [],
+"pagination": {
+"pageSize": 25,
+"continuationToken": "..."
+}
+}
+
+Error:
+
+{
+"error": {
+"code": "PROJECT_NOT_FOUND",
+"message": "Project was not found.",
+"traceId": "..."
+}
+}
+
+Never return stack traces or internal exception details to clients.
+
+---
+
+# 9. HTTP Status Codes
+
+Use:
+
+200 OK
+201 Created
+204 No Content
+400 Bad Request
+401 Unauthorized
+403 Forbidden
+404 Not Found
+409 Conflict
+422 Unprocessable Entity
+429 Too Many Requests
+500 Internal Server Error
+
+Use 409 for concurrency conflicts and duplicate business operations where appropriate.
+
+---
+
+# 10. Global Error Handling
+
+Create centralized exception handling.
+
+Map:
+
+ValidationException → 400/422
+UnauthorizedException → 401
+ForbiddenException → 403
+NotFoundException → 404
+ConcurrencyException → 409
+DuplicateEntityException → 409
+UnexpectedException → 500
+
+Generate a correlation/trace ID for every request.
+
+---
+
+# 11. Validation
+
+Use FluentValidation.
+
+Do not put complex validation logic inside Functions.
+
+Example:
+
+CreateProjectRequestValidator
+
+UpdateProjectRequestValidator
+
+CreateTaskRequestValidator
+
+UpdateTaskRequestValidator
+
+CreateTimesheetRequestValidator
+
+etc.
+
+Validate:
+
+required fields
+string lengths
+dates
+numeric ranges
+enum values
+relationships
+organization ownership
+
+---
+
+# 12. Core APIs
+
+## Organizations
+
+Implement:
+
+GET /api/v1/organizations/{organizationId}
+
+PUT /api/v1/organizations/{organizationId}
+
+GET /api/v1/organizations/{organizationId}/settings
+
+PUT /api/v1/organizations/{organizationId}/settings
+
+Users should only access their own organization unless they have system-level administrative permission.
+
+---
+
+# 13. User APIs
+
+Implement:
+
+GET /api/v1/users
+
+POST /api/v1/users
+
+GET /api/v1/users/{userId}
+
+PUT /api/v1/users/{userId}
+
+DELETE /api/v1/users/{userId}
+
+GET /api/v1/users/{userId}/roles
+
+POST /api/v1/users/{userId}/roles/{roleId}
+
+DELETE /api/v1/users/{userId}/roles/{roleId}
+
+Support:
+
+search
+status filtering
+department filtering
+pagination
+sorting
+
+Example:
+
+GET /api/v1/users?search=john&status=ACTIVE&page=1&pageSize=25
+
+---
+
+# 14. Department APIs
+
+Implement:
+
+GET /api/v1/departments
+
+POST /api/v1/departments
+
+GET /api/v1/departments/{departmentId}
+
+PUT /api/v1/departments/{departmentId}
+
+DELETE /api/v1/departments/{departmentId}
+
+GET /api/v1/departments/{departmentId}/users
+
+---
+
+# 15. Role APIs
+
+Implement:
+
+GET /api/v1/roles
+
+POST /api/v1/roles
+
+GET /api/v1/roles/{roleId}
+
+PUT /api/v1/roles/{roleId}
+
+DELETE /api/v1/roles/{roleId}
+
+GET /api/v1/roles/{roleId}/permissions
+
+POST /api/v1/roles/{roleId}/permissions/{permissionId}
+
+DELETE /api/v1/roles/{roleId}/permissions/{permissionId}
+
+---
+
+# 16. Permission APIs
+
+Implement:
+
+GET /api/v1/permissions
+
+GET /api/v1/permissions/{permissionId}
+
+Permissions are primarily system configuration.
+
+Do not allow normal users to create arbitrary permissions.
+
+---
+
+# 17. Client APIs
+
+Implement:
+
+GET /api/v1/clients
+
+POST /api/v1/clients
+
+GET /api/v1/clients/{clientId}
+
+PUT /api/v1/clients/{clientId}
+
+DELETE /api/v1/clients/{clientId}
+
+GET /api/v1/clients/{clientId}/projects
+
+Support:
+
+search
+status
+pagination
+sorting
+
+Keep Clients as a lightweight core entity so that it can later evolve into the CRM module.
+
+---
+
+# 18. Project APIs
+
+Implement:
+
+POST /api/v1/projects
+
+GET /api/v1/projects
+
+GET /api/v1/projects/{projectId}
+
+PUT /api/v1/projects/{projectId}
+
+DELETE /api/v1/projects/{projectId}
+
+GET /api/v1/projects/{projectId}/summary
+
+GET /api/v1/projects/{projectId}/activity
+
+Support project filtering:
+
+status
+priority
+managerId
+clientId
+startDate
+endDate
+search
+
+Example:
+
+GET /api/v1/projects?status=ACTIVE&managerId=123&search=website&page=1&pageSize=25
+
+---
+
+# 19. Create Project
+
+Request:
+
+{
+"code": "PRJ-001",
+"name": "Website Development",
+"description": "Corporate website",
+"clientId": "guid",
+"managerId": "guid",
+"statusId": "guid",
+"priorityId": "guid",
+"startDate": "2026-09-01",
+"plannedEndDate": "2026-12-31",
+"budget": 100000,
+"currencyCode": "INR"
+}
+
+Do NOT accept:
+
+organizationId
+createdBy
+updatedBy
+createdAt
+
+These are server-controlled.
+
+Validate:
+
+client belongs to organization
+manager belongs to organization
+status belongs to organization
+priority belongs to organization
+
+---
+
+# 20. Project Members APIs
+
+Implement:
+
+GET /api/v1/projects/{projectId}/members
+
+POST /api/v1/projects/{projectId}/members
+
+PUT /api/v1/projects/{projectId}/members/{userId}
+
+DELETE /api/v1/projects/{projectId}/members/{userId}
+
+Request:
+
+{
+"userId": "guid",
+"projectRole": "DEVELOPER",
+"allocationPercentage": 50,
+"startDate": "2026-09-01",
+"endDate": "2026-12-31"
+}
+
+Validate:
+
+user belongs to organization
+project belongs to organization
+user has access to project if required
+allocationPercentage is 0-100
+
+---
+
+# 21. Project Status APIs
+
+Implement:
+
+GET /api/v1/project-statuses
+
+POST /api/v1/project-statuses
+
+GET /api/v1/project-statuses/{statusId}
+
+PUT /api/v1/project-statuses/{statusId}
+
+DELETE /api/v1/project-statuses/{statusId}
+
+Do not allow deletion of a status currently used by projects.
+
+---
+
+# 22. Project Priority APIs
+
+Implement:
+
+GET /api/v1/project-priorities
+
+POST /api/v1/project-priorities
+
+GET /api/v1/project-priorities/{priorityId}
+
+PUT /api/v1/project-priorities/{priorityId}
+
+DELETE /api/v1/project-priorities/{priorityId}
+
+Do not allow deletion of a priority currently used by projects.
+
+---
+
+# 23. Task APIs
+
+Implement:
+
+POST /api/v1/projects/{projectId}/tasks
+
+GET /api/v1/projects/{projectId}/tasks
+
+GET /api/v1/tasks/{taskId}
+
+PUT /api/v1/tasks/{taskId}
+
+DELETE /api/v1/tasks/{taskId}
+
+GET /api/v1/tasks/{taskId}/subtasks
+
+POST /api/v1/tasks/{taskId}/subtasks
+
+Support:
+
+search
+status
+priority
+assignee
+sprint
+milestone
+due date
+pagination
+sorting
+
+Example:
+
+GET /api/v1/projects/{projectId}/tasks?status=IN_PROGRESS&assigneeId=123&page=1&pageSize=25
+
+---
+
+# 24. Create Task
+
+Request:
+
+{
+"title": "Implement payment API",
+"description": "Implement backend payment integration",
+"parentTaskId": null,
+"statusId": "guid",
+"priorityId": "guid",
+"assigneeId": "guid",
+"milestoneId": "guid",
+"sprintId": "guid",
+"startDate": "2026-09-01",
+"dueDate": "2026-09-10",
+"estimatedHours": 24
+}
+
+Server sets:
+
+organizationId
+projectId
+reporterId
+createdBy
+createdAt
+
+Validate every referenced entity.
+
+Assignee must have access to the project.
+
+Milestone must belong to project.
+
+Sprint must belong to project.
+
+Parent task must belong to project.
+
+---
+
+# 25. Task Assignment
+
+Implement:
+
+PUT /api/v1/tasks/{taskId}/assignee
+
+Request:
+
+{
+"assigneeId": "guid"
+}
+
+Validate:
+
+user belongs to organization
+user has project access
+
+Generate:
+
+TaskAssigned
+
+event.
+
+Create audit record.
+
+Create notification for assignee.
+
+---
+
+# 26. Task Status
+
+Implement:
+
+PUT /api/v1/tasks/{taskId}/status
+
+Request:
+
+{
+"statusId": "guid"
+}
+
+Validate status belongs to organization.
+
+Generate:
+
+TaskStatusChanged
+
+event.
+
+Create audit record.
+
+If status is DONE:
+
+set CompletionPercentage = 100
+
+unless business rules explicitly allow otherwise.
+
+---
+
+# 27. Task Watchers
+
+Implement:
+
+GET /api/v1/tasks/{taskId}/watchers
+
+POST /api/v1/tasks/{taskId}/watchers/{userId}
+
+DELETE /api/v1/tasks/{taskId}/watchers/{userId}
+
+---
+
+# 28. Task Status APIs
+
+Implement:
+
+GET /api/v1/task-statuses
+
+POST /api/v1/task-statuses
+
+GET /api/v1/task-statuses/{statusId}
+
+PUT /api/v1/task-statuses/{statusId}
+
+DELETE /api/v1/task-statuses/{statusId}
+
+Do not allow deleting a status used by tasks.
+
+---
+
+# 29. Task Priority APIs
+
+Implement:
+
+GET /api/v1/task-priorities
+
+POST /api/v1/task-priorities
+
+GET /api/v1/task-priorities/{priorityId}
+
+PUT /api/v1/task-priorities/{priorityId}
+
+DELETE /api/v1/task-priorities/{priorityId}
+
+---
+
+# 30. Milestone APIs
+
+Implement:
+
+POST /api/v1/projects/{projectId}/milestones
+
+GET /api/v1/projects/{projectId}/milestones
+
+GET /api/v1/milestones/{milestoneId}
+
+PUT /api/v1/milestones/{milestoneId}
+
+DELETE /api/v1/milestones/{milestoneId}
+
+Validate:
+
+milestone belongs to project
+owner belongs to organization
+
+---
+
+# 31. Sprint APIs
+
+Implement:
+
+POST /api/v1/projects/{projectId}/sprints
+
+GET /api/v1/projects/{projectId}/sprints
+
+GET /api/v1/sprints/{sprintId}
+
+PUT /api/v1/sprints/{sprintId}
+
+DELETE /api/v1/sprints/{sprintId}
+
+POST /api/v1/sprints/{sprintId}/tasks/{taskId}
+
+DELETE /api/v1/sprints/{sprintId}/tasks/{taskId}
+
+GET /api/v1/sprints/{sprintId}/tasks
+
+Validate sprint and task belong to same project.
+
+---
+
+# 32. Sprint Workflow
+
+Implement:
+
+POST /api/v1/sprints/{sprintId}/start
+
+POST /api/v1/sprints/{sprintId}/complete
+
+POST /api/v1/sprints/{sprintId}/cancel
+
+Enforce valid state transitions.
+
+Example:
+
+PLANNED → ACTIVE
+ACTIVE → COMPLETED
+PLANNED → CANCELLED
+
+Do not allow invalid transitions.
+
+---
+
+# 33. Timesheet APIs
+
+Implement:
+
+POST /api/v1/timesheets
+
+GET /api/v1/timesheets
+
+GET /api/v1/timesheets/{timesheetId}
+
+PUT /api/v1/timesheets/{timesheetId}
+
+DELETE /api/v1/timesheets/{timesheetId}
+
+POST /api/v1/timesheets/{timesheetId}/submit
+
+POST /api/v1/timesheets/{timesheetId}/approve
+
+POST /api/v1/timesheets/{timesheetId}/reject
+
+GET /api/v1/users/{userId}/timesheets
+
+GET /api/v1/projects/{projectId}/timesheets
+
+---
+
+# 34. Timesheet workflow
+
+Statuses:
+
+DRAFT
+SUBMITTED
+APPROVED
+REJECTED
+
+Valid transitions:
+
+DRAFT → SUBMITTED
+SUBMITTED → APPROVED
+SUBMITTED → REJECTED
+REJECTED → DRAFT
+
+Only authorized users can approve/reject.
+
+Users can only modify their own draft/rejected timesheets unless they have administrative permission.
+
+Every approval/rejection must create a TimesheetApproval record.
+
+Every transition must create an audit record.
+
+---
+
+# 35. Comments APIs
+
+Comments are shared across modules.
+
+Implement:
+
+GET /api/v1/comments?entityType=PROJECT&entityId={id}
+
+POST /api/v1/comments
+
+PUT /api/v1/comments/{commentId}
+
+DELETE /api/v1/comments/{commentId}
+
+Request:
+
+{
+"entityType": "TASK",
+"entityId": "guid",
+"content": "Implementation completed."
+}
+
+Validate entity ownership.
+
+Users can edit/delete their own comments unless they have administrative permission.
+
+Soft-delete comments.
+
+---
+
+# 36. Documents APIs
+
+Files must be stored in Azure Blob Storage.
+
+SQL stores metadata.
+
+Implement:
+
+POST /api/v1/documents/upload
+
+GET /api/v1/documents/{documentId}
+
+GET /api/v1/documents?entityType=PROJECT&entityId={id}
+
+DELETE /api/v1/documents/{documentId}
+
+Recommended upload flow:
+
+1. Authenticate user.
+2. Validate entity ownership.
+3. Generate secure Blob upload URL/SAS.
+4. Upload file to Blob Storage.
+5. Save metadata in SQL.
+6. Publish DocumentUploaded event.
+
+Do not send large binary files through the Function API if direct Blob upload is practical.
+
+Validate:
+
+file size
+content type
+file extension
+entity ownership
+
+---
+
+# 37. Notifications APIs
+
+Implement:
+
+GET /api/v1/notifications
+
+GET /api/v1/notifications/unread
+
+POST /api/v1/notifications/{notificationId}/read
+
+POST /api/v1/notifications/read-all
+
+Notifications must only be accessible to the target user.
+
+---
+
+# 38. Notification Preferences
+
+Implement:
+
+GET /api/v1/notification-preferences
+
+PUT /api/v1/notification-preferences/{notificationType}
+
+Users should only modify their own notification preferences unless they have administrative permissions.
+
+---
+
+# 39. Audit APIs
+
+Implement:
+
+GET /api/v1/audit-logs
+
+GET /api/v1/projects/{projectId}/activity
+
+GET /api/v1/tasks/{taskId}/activity
+
+GET /api/v1/timesheets/{timesheetId}/activity
+
+Audit logs are read-only.
+
+No normal API should expose update/delete operations for audit logs.
+
+---
+
+# 40. Custom Fields APIs
+
+Implement:
+
+GET /api/v1/custom-fields?entityType=PROJECT
+
+POST /api/v1/custom-fields
+
+GET /api/v1/custom-fields/{fieldId}
+
+PUT /api/v1/custom-fields/{fieldId}
+
+DELETE /api/v1/custom-fields/{fieldId}
+
+Implement:
+
+GET /api/v1/custom-field-values?entityType=PROJECT&entityId={id}
+
+PUT /api/v1/custom-field-values
+
+Validate custom field belongs to organization.
+
+Validate value according to FieldType.
+
+---
+
+# 41. Dashboard APIs
+
+Create optimized APIs for the Project Management dashboard.
+
+Implement:
+
+GET /api/v1/dashboard/overview
+
+GET /api/v1/dashboard/my-work
+
+GET /api/v1/dashboard/project-summary
+
+GET /api/v1/dashboard/task-summary
+
+GET /api/v1/dashboard/timesheet-summary
+
+Example overview response:
+
+{
+"data": {
+"totalProjects": 25,
+"activeProjects": 18,
+"completedProjects": 5,
+"overdueProjects": 2,
+"totalTasks": 450,
+"completedTasks": 310,
+"overdueTasks": 23,
+"pendingTimesheets": 14
+}
+}
+
+Optimize these queries.
+
+Do not retrieve all projects/tasks and calculate everything in application memory.
+
+Use SQL aggregation/projection.
+
+---
+
+# 42. My Work API
+
+Implement:
+
+GET /api/v1/dashboard/my-work
+
+Return:
+
+assigned tasks
+overdue tasks
+tasks due today
+tasks due this week
+recent projects
+pending timesheets
+notifications
+
+Allow filtering and pagination.
+
+---
+
+# 43. Project Summary
+
+Implement:
+
+GET /api/v1/projects/{projectId}/summary
+
+Return:
+
+project information
+task counts
+task completion
+milestone status
+sprint status
+team members
+timesheet summary
+recent activity
+
+Do not load unnecessary full entity collections.
+
+Use optimized queries/projections.
+
+---
+
+# 44. Search and Filtering
+
+All list APIs must support appropriate:
+
+search
+filters
+sorting
+pagination
+
+Example:
+
+GET /api/v1/tasks?
+status=IN_PROGRESS
+&priority=HIGH
+&assigneeId=123
+&dueBefore=2026-09-30
+&page=1
+&pageSize=25
+
+Use query parameters.
+
+Do not create separate endpoints for every possible filter combination.
+
+---
+
+# 45. Pagination
+
+Use:
+
+page
+pageSize
+
+for normal APIs.
+
+Maximum pageSize:
+
+100
+
+For very large datasets, prefer keyset/cursor pagination.
+
+Never load an unlimited collection into memory.
+
+---
+
+# 46. DTO Design
+
+Never expose EF Core entities directly.
+
+Create:
+
+CreateProjectRequest
+UpdateProjectRequest
+ProjectResponse
+
+CreateTaskRequest
+UpdateTaskRequest
+TaskResponse
+
+CreateTimesheetRequest
+UpdateTimesheetRequest
+TimesheetResponse
+
+etc.
+
+Separate:
+
+API DTO
+Domain Entity
+EF Core Entity
+
+where appropriate.
+
+---
+
+# 47. EF Core
+
+Use the existing SQL database as the source of truth.
+
+Generate/configure:
+
+ERPDbContext
+
+Use:
+
+IEntityTypeConfiguration<T>
+
+for every entity.
+
+Do not create migrations that alter the existing schema unless explicitly requested.
+
+Initially use:
+
+Database-first / existing-schema-compatible approach.
+
+If migrations are required later, generate them carefully after validating against the actual Azure SQL schema.
+
+---
+
+# 48. Repository/Data Access
+
+Create specialized repositories:
+
+IOrganizationRepository
+IUserRepository
+IRoleRepository
+IClientRepository
+
+IProjectRepository
+IProjectMemberRepository
+ITaskRepository
+IMilestoneRepository
+ISprintRepository
+ITimesheetRepository
+
+ICommentRepository
+IDocumentRepository
+INotificationRepository
+IAuditRepository
+ICustomFieldRepository
+IOutboxRepository
+
+Use EF Core async operations.
+
+Do not put SQL queries directly inside Function classes.
+
+---
+
+# 49. Application Services
+
+Create services such as:
+
+IProjectService
+ITaskService
+IMilestoneService
+ISprintService
+ITimesheetService
+ICommentService
+IDocumentService
+INotificationService
+IAuditService
+ICustomFieldService
+
+Functions should be thin:
+
+HTTP Request
+→ Authentication
+→ Validation
+→ Application Service
+→ Repository
+→ Database
+
+---
+
+# 50. Azure Function Design
+
+Use HTTP-triggered Functions.
+
+Example:
+
+CreateProjectFunction
+GetProjectsFunction
+GetProjectFunction
+UpdateProjectFunction
+DeleteProjectFunction
+
+CreateTaskFunction
+GetProjectTasksFunction
+GetTaskFunction
+UpdateTaskFunction
+DeleteTaskFunction
+
+etc.
+
+Functions must not contain business logic.
+
+Use dependency injection.
+
+Register services through Program.cs.
+
+Reuse DbContext appropriately with Azure Functions dependency injection.
+
+---
+
+# 51. Function Routes
+
+Use RESTful routes.
+
+Examples:
+
+POST /api/v1/projects
+
+GET /api/v1/projects
+
+GET /api/v1/projects/{projectId}
+
+PUT /api/v1/projects/{projectId}
+
+DELETE /api/v1/projects/{projectId}
+
+POST /api/v1/projects/{projectId}/tasks
+
+GET /api/v1/projects/{projectId}/tasks
+
+GET /api/v1/tasks/{taskId}
+
+PUT /api/v1/tasks/{taskId}
+
+POST /api/v1/tasks/{taskId}/status
+
+PUT /api/v1/tasks/{taskId}/assignee
+
+---
+
+# 52. Business Rules
+
+Implement business rules in the Application/Domain layer.
+
+Examples:
+
+A task must belong to an existing project.
+
+A task assignee must belong to the organization.
+
+A project manager must belong to the organization.
+
+A project member must belong to the organization.
+
+A milestone must belong to the same project.
+
+A sprint must belong to the same project.
+
+A task added to a sprint must belong to the same project.
+
+A timesheet task must belong to the specified project.
+
+A user cannot approve their own timesheet unless explicitly permitted.
+
+Completed projects cannot receive new tasks unless reopened.
+
+Archived projects cannot be modified by normal users.
+
+Do not implement these rules in controllers/functions.
+
+---
+
+# 53. Concurrency
+
+Use EF Core optimistic concurrency.
+
+Use RowVersion where present in the database.
+
+If RowVersion does not exist in the existing schema, do not modify the database automatically.
+
+Instead document the limitation and propose a migration.
+
+Return:
+
+409 Conflict
+
+when an entity has been modified since it was retrieved.
+
+---
+
+# 54. Audit
+
+Every important mutation must generate an audit entry.
+
+Examples:
+
+ProjectCreated
+ProjectUpdated
+ProjectArchived
+
+TaskCreated
+TaskUpdated
+TaskAssigned
+TaskStatusChanged
+TaskDeleted
+
+MilestoneCreated
+MilestoneUpdated
+
+TimesheetSubmitted
+TimesheetApproved
+TimesheetRejected
+
+RoleAssigned
+RoleRemoved
+
+DocumentUploaded
+DocumentDeleted
+
+Capture:
+
+userId
+organizationId
+entityType
+entityId
+action
+oldValues
+newValues
+timestamp
+correlationId
+
+Audit creation must happen reliably with the business operation.
+
+Where possible, write audit information within the same SQL transaction.
+
+---
+
+# 55. Outbox Pattern
+
+Use:
+
+shared.OutboxMessages
+
+for integration events.
+
+For a transaction such as:
+
+Task status changed
+
+perform:
+
+1. Update Task.
+2. Create AuditLog.
+3. Create OutboxMessage.
+4. Commit SQL transaction.
+
+Then a separate Azure Function:
+
+OutboxProcessorFunction
+
+should:
+
+1. Read unprocessed outbox messages.
+2. Publish event to Azure Service Bus.
+3. Mark event as processed.
+4. Retry failures.
+5. Move permanently failed events to an error/dead-letter mechanism.
+
+Never publish an event to Service Bus and then assume the SQL transaction will succeed.
+
+---
+
+# 56. Events
+
+Create integration/domain events:
+
+ProjectCreated
+ProjectUpdated
+ProjectArchived
+
+ProjectMemberAdded
+ProjectMemberRemoved
+
+TaskCreated
+TaskUpdated
+TaskAssigned
+TaskStatusChanged
+TaskCompleted
+
+MilestoneCreated
+MilestoneCompleted
+
+SprintStarted
+SprintCompleted
+
+TimesheetSubmitted
+TimesheetApproved
+TimesheetRejected
+
+CommentAdded
+
+DocumentUploaded
+
+These events should be designed so future CRM/HR/Finance modules can subscribe without modifying Project Management code.
+
+---
+
+# 57. Azure Service Bus
+
+Create an abstraction:
+
+IEventPublisher
+
+Initial implementation:
+
+Azure Service Bus.
+
+Use message properties:
+
+eventType
+eventId
+organizationId
+entityType
+entityId
+createdAt
+
+Every event must have a unique eventId.
+
+Consumers must be idempotent.
+
+---
+
+# 58. Azure Blob Storage
+
+Create:
+
+IBlobStorageService
+
+Methods:
+
+GenerateUploadUrl
+GenerateDownloadUrl
+DeleteFile
+FileExists
+
+Do not expose Azure Blob credentials to clients.
+
+Use secure short-lived SAS URLs.
+
+---
+
+# 59. Logging
+
+Use structured logging.
+
+Every log should include where relevant:
+
+traceId
+organizationId
+userId
+functionName
+entityType
+entityId
+
+Never log:
+
+passwords
+tokens
+connection strings
+secrets
+
+---
+
+# 60. Application Insights
+
+Integrate:
+
+Application Insights
+OpenTelemetry
+
+Track:
+
+request duration
+database duration
+exceptions
+dependency calls
+Service Bus operations
+Blob operations
+
+Add custom metrics for:
+
+projects created
+tasks created
+tasks completed
+timesheets submitted
+timesheets approved
+
+---
+
+# 61. Rate Limiting
+
+Protect APIs from abuse.
+
+Apply rate limits to:
+
+authentication endpoints
+file upload endpoints
+expensive reporting endpoints
+
+Use Azure/API Management where appropriate.
+
+---
+
+# 62. Security
+
+Implement:
+
+* authentication
+* authorization
+* tenant isolation
+* input validation
+* SQL parameterization
+* secure headers
+* CORS
+* rate limiting
+* secure file upload
+* audit logging
+* secret management
+* Managed Identity
+
+Do not trust IDs from the client without checking ownership.
+
+---
+
+# 63. API Documentation
+
+Generate OpenAPI documentation.
+
+Every endpoint must document:
+
+* endpoint
+* HTTP method
+* authentication
+* permission
+* request
+* response
+* possible errors
+* query parameters
+* pagination
+
+Add examples for important endpoints.
+
+---
+
+# 64. Testing
+
+Create:
+
+Unit Tests
+Integration Tests
+API Tests
+Authorization Tests
+Tenant Isolation Tests
+Validation Tests
+Concurrency Tests
+
+Mandatory tests:
+
+1. User cannot access another organization's project.
+2. User cannot access another organization's task.
+3. User cannot modify another organization's entity.
+4. User cannot assign a task to an invalid user.
+5. User cannot add a task from another project to a sprint.
+6. User cannot add a user from another organization to a project.
+7. Unauthorized user cannot approve timesheet.
+8. Audit records are created for mutations.
+9. Duplicate project code is rejected.
+10. Duplicate project member is rejected.
+11. Invalid task status transition is rejected.
+12. Invalid sprint transition is rejected.
+13. Soft-deleted entities are not returned by normal APIs.
+14. Concurrency conflict returns 409.
+15. Notifications cannot be read by another user.
+
+---
+
+# 65. Performance
+
+Optimize for Azure Functions/serverless execution.
+
+Use:
+
+* async database operations
+* efficient EF projections
+* AsNoTracking for read-only queries
+* pagination
+* proper indexes
+* compiled queries where beneficial
+* connection reuse
+* minimal dependency initialization
+
+Avoid:
+
+* N+1 queries
+* unnecessary Include chains
+* loading large collections
+* SELECT *
+* synchronous database calls
+* performing aggregation in application memory
+
+---
+
+# 66. Cold Start
+
+Keep Azure Function initialization lightweight.
+
+Do not initialize unnecessary services during startup.
+
+Reuse:
+
+DbContext configuration
+HttpClient
+Azure Service Bus clients
+Blob clients
+
+through dependency injection.
+
+---
+
+# 67. API Idempotency
+
+Implement idempotency for important commands where appropriate.
+
+Especially:
+
+Create project
+Create timesheet
+Submit timesheet
+Approve timesheet
+Reject timesheet
+
+Support:
+
+Idempotency-Key
+
+where duplicate requests could cause business problems.
+
+---
+
+# 68. Soft Delete
+
+For entities supporting soft delete:
+
+DELETE /api/v1/projects/{id}
+
+should normally mark:
+
+IsDeleted = true
+
+rather than physically deleting.
+
+Normal queries must exclude deleted records.
+
+Administrative restore functionality can be added later.
+
+---
+
+# 69. API Security Against IDOR
+
+Every endpoint containing an ID must verify:
+
+1. User is authenticated.
+2. Entity exists.
+3. Entity belongs to current organization.
+4. User has required permission.
+5. User has required project/resource access.
+
+Never rely on the obscurity of GUIDs.
+
+---
+
+# 70. Project-level authorization
+
+Support two layers of authorization:
+
+Organization permission
+
+AND
+
+Project membership/access.
+
+For example:
+
+A user may have:
+
+task.update
+
+but still only modify tasks belonging to projects they are allowed to access.
+
+Project managers may have broader project access.
+
+Administrators may have organization-wide access.
+
+Implement this as reusable authorization logic.
+
+---
+
+# 71. API Inventory
+
+Generate a final API inventory grouped by module.
+
+CORE:
+
+/api/v1/users
+/api/v1/departments
+/api/v1/roles
+/api/v1/permissions
+/api/v1/clients
+/api/v1/organizations
+
+PROJECT:
+
+/api/v1/projects
+/api/v1/projects/{id}/members
+/api/v1/projects/{id}/tasks
+/api/v1/projects/{id}/milestones
+/api/v1/projects/{id}/sprints
+/api/v1/tasks
+/api/v1/milestones
+/api/v1/sprints
+/api/v1/timesheets
+
+SHARED:
+
+/api/v1/comments
+/api/v1/documents
+/api/v1/notifications
+/api/v1/notification-preferences
+/api/v1/audit-logs
+/api/v1/custom-fields
+
+DASHBOARD:
+
+/api/v1/dashboard/overview
+/api/v1/dashboard/my-work
+/api/v1/dashboard/project-summary
+/api/v1/dashboard/task-summary
+/api/v1/dashboard/timesheet-summary
+
+---
+
+# 72. Implementation Order
+
+Implement in this order.
+
+## Phase 1 — Infrastructure
+
+Create:
+
+* Azure Functions project
+* dependency injection
+* configuration
+* ERPDbContext
+* EF Core mappings
+* authentication
+* tenant context
+* authorization
+* global exception handling
+* logging
+* OpenAPI
+
+Do not implement business APIs yet.
+
+## Phase 2 — Core
+
+Implement:
+
+Organizations
+Users
+Departments
+Roles
+Permissions
+Clients
+
+## Phase 3 — Project Management
+
+Implement:
+
+Projects
+Project Members
+Project Statuses
+Project Priorities
+
+## Phase 4 — Tasks
+
+Implement:
+
+Tasks
+Subtasks
+Task Statuses
+Task Priorities
+Task Watchers
+
+## Phase 5 — Agile
+
+Implement:
+
+Milestones
+Sprints
+Sprint Tasks
+
+## Phase 6 — Timesheets
+
+Implement:
+
+Timesheets
+Timesheet workflow
+Timesheet approvals
+
+## Phase 7 — Shared
+
+Implement:
+
+Comments
+Documents
+Notifications
+Notification preferences
+Audit logs
+Custom fields
+
+## Phase 8 — Events
+
+Implement:
+
+Outbox
+Domain events
+Azure Service Bus
+Outbox processor
+
+## Phase 9 — Dashboard
+
+Implement:
+
+Project dashboard
+Task dashboard
+My Work
+Timesheet dashboard
+
+## Phase 10 — Quality
+
+Implement:
+
+Unit tests
+Integration tests
+Security tests
+Tenant isolation tests
+Performance tests
+OpenAPI documentation
+
+---
+
+# 73. Do Not Over-Engineer V1
+
+Do not introduce microservices at this stage.
+
+Use one Azure Function App initially, with clearly separated modules.
+
+Future architecture can become:
+
+ERP Core Function App
+Project Management Function App
+CRM Function App
+HR Function App
+Finance Function App
+
+without requiring a rewrite.
+
+---
+
+# 74. Final implementation requirement
+
+Before writing implementation code:
+
+1. Inspect the existing Azure SQL schema.
+2. Compare it against the expected schema listed above.
+3. Report any mismatch.
+4. Do not silently modify the database.
+5. Generate the final API inventory.
+6. Generate the project/folder structure.
+7. Generate the authorization matrix.
+8. Generate the API-to-database mapping.
+9. Generate the event flow.
+10. Then implement the APIs incrementally.
+
+For every API, provide:
+
+* Function
+* Route
+* HTTP method
+* Request DTO
+* Response DTO
+* Validation
+* Authorization
+* Application service
+* Repository
+* SQL query/EF query
+* Audit behavior
+* Event behavior
+* Error handling
+* Unit tests
+* Integration tests
+
+The resulting backend must be production-ready, secure, tenant-isolated, maintainable, testable, and extensible for future ERP modules.
+
+Do not sacrifice architecture or security for speed of implementation.

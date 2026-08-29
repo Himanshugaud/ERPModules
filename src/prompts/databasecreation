@@ -1,0 +1,2122 @@
+# Build Production-Ready SQL Database for Extensible ERP
+
+Design and implement the complete relational database for a multi-tenant ERP application.
+
+The backend will use:
+
+* Azure Functions
+* .NET 10
+* C#
+* ASP.NET Core-compatible application architecture
+* Entity Framework Core
+* Azure SQL Database
+* Azure Blob Storage for documents
+* Azure Service Bus for asynchronous events
+
+The ERP will initially launch with the Project Management module but must be designed for future modules:
+
+* CRM
+* HR
+* Finance
+* Accounting
+* Procurement
+* Inventory
+* Sales
+* Expense Management
+
+The database must be production-ready, normalized where appropriate, extensible, secure, and optimized for Azure SQL.
+
+---
+
+# 1. Database Architecture
+
+Create one Azure SQL Database:
+
+ERP
+
+Use a modular relational schema.
+
+Organize tables conceptually by module:
+
+CORE
+
+* Organizations
+* OrganizationSettings
+* Users
+* Departments
+* Roles
+* Permissions
+* UserRoles
+* RolePermissions
+
+PROJECT MANAGEMENT
+
+* Projects
+* ProjectMembers
+* ProjectStatuses
+* ProjectPriorities
+* Tasks
+* TaskStatuses
+* TaskPriorities
+* TaskWatchers
+* Milestones
+* Sprints
+* SprintTasks
+* Timesheets
+* TimesheetApprovals
+
+SHARED
+
+* Comments
+* Documents
+* Notifications
+* NotificationPreferences
+* AuditLogs
+* CustomFields
+* CustomFieldValues
+
+Design the schema so future modules can be added without modifying existing Project Management tables unnecessarily.
+
+---
+
+# 2. Multi-Tenancy
+
+The ERP must support multiple organizations.
+
+Create:
+
+Organizations
+
+Every tenant-owned table must contain:
+
+OrganizationId
+
+The authenticated user determines the organization context.
+
+Never trust OrganizationId supplied directly by the client.
+
+All application queries must enforce tenant isolation.
+
+A user from Organization A must never be able to access Organization B data.
+
+Use foreign keys from tenant-owned records to Organizations(Id).
+
+---
+
+# 3. Primary Key Strategy
+
+Use:
+
+uniqueidentifier
+
+for primary keys.
+
+Generate IDs using application code or SQL NEWSEQUENTIALID() where appropriate.
+
+Preferred:
+
+Id uniqueidentifier NOT NULL
+
+Primary keys should generally use:
+
+DEFAULT NEWSEQUENTIALID()
+
+Avoid integer identity IDs for business entities because the system may eventually need distributed processing or data migration.
+
+---
+
+# 4. Standard Audit Columns
+
+Most business tables should contain:
+
+CreatedAt
+UpdatedAt
+CreatedBy
+UpdatedBy
+
+Use:
+
+datetime2
+
+for timestamps.
+
+All timestamps must be stored in UTC.
+
+CreatedBy and UpdatedBy should reference Users(Id) where appropriate.
+
+Do not allow clients to arbitrarily set these fields.
+
+The backend should derive them from the authenticated user.
+
+---
+
+# 5. Soft Delete
+
+ERP business data should generally support soft deletion.
+
+Where appropriate, include:
+
+IsDeleted
+DeletedAt
+DeletedBy
+
+Do NOT physically delete important historical records such as:
+
+* Timesheets
+* Financial records
+* Approval history
+* Audit logs
+
+Projects and tasks should preferably be archived or soft-deleted.
+
+AuditLogs must be immutable.
+
+---
+
+# 6. Organizations
+
+Table:
+
+Organizations
+
+Columns:
+
+Id uniqueidentifier PK
+Code nvarchar(50) NOT NULL
+Name nvarchar(200) NOT NULL
+LegalName nvarchar(250) NULL
+Description nvarchar(1000) NULL
+Email nvarchar(255) NULL
+Phone nvarchar(50) NULL
+CountryCode nvarchar(10) NULL
+Timezone nvarchar(100) NULL
+CurrencyCode char(3) NULL
+Status nvarchar(30) NOT NULL
+CreatedAt datetime2 NOT NULL
+UpdatedAt datetime2 NULL
+CreatedBy uniqueidentifier NULL
+UpdatedBy uniqueidentifier NULL
+
+Constraints:
+
+Code must be unique.
+
+Suggested statuses:
+
+ACTIVE
+SUSPENDED
+INACTIVE
+
+---
+
+# 7. OrganizationSettings
+
+Table:
+
+OrganizationSettings
+
+Columns:
+
+Id
+OrganizationId
+DefaultCurrencyCode
+Timezone
+DateFormat
+WeekStartDay
+FiscalYearStartMonth
+DefaultProjectStatusId
+DefaultTaskStatusId
+SettingsJson
+CreatedAt
+UpdatedAt
+
+Constraint:
+
+One OrganizationSettings record per Organization.
+
+Unique:
+
+OrganizationId
+
+Use JSON only for genuinely flexible settings.
+
+Do not use JSON for core relational business data.
+
+---
+
+# 8. Departments
+
+Create:
+
+Departments
+
+Columns:
+
+Id
+OrganizationId
+Name
+Code
+Description
+ManagerId
+IsActive
+CreatedAt
+UpdatedAt
+CreatedBy
+UpdatedBy
+
+Constraints:
+
+Unique:
+
+OrganizationId + Code
+
+ManagerId references Users(Id).
+
+This table belongs to the Core module because HR and Project Management may both use departments.
+
+---
+
+# 9. Users
+
+Table:
+
+Users
+
+Columns:
+
+Id
+OrganizationId
+ExternalIdentityId
+Email
+FirstName
+LastName
+DisplayName
+Phone
+JobTitle
+DepartmentId
+Status
+Timezone
+ProfileImageUrl
+LastLoginAt
+CreatedAt
+UpdatedAt
+CreatedBy
+UpdatedBy
+
+Important:
+
+Email must be unique within an organization.
+
+Unique constraint:
+
+OrganizationId + Email
+
+ExternalIdentityId should support integration with Microsoft Entra ID or another identity provider.
+
+Do not store authentication passwords if an external identity provider is used.
+
+---
+
+# 10. Roles
+
+Table:
+
+Roles
+
+Columns:
+
+Id
+OrganizationId
+Name
+Description
+IsSystemRole
+IsActive
+CreatedAt
+UpdatedAt
+CreatedBy
+UpdatedBy
+
+Unique:
+
+OrganizationId + Name
+
+Default roles:
+
+SUPER_ADMIN
+ADMIN
+PROJECT_MANAGER
+PROJECT_MEMBER
+VIEWER
+
+System roles must not be deleted through normal APIs.
+
+---
+
+# 11. Permissions
+
+Table:
+
+Permissions
+
+Columns:
+
+Id
+Code
+Name
+Description
+Module
+Resource
+Action
+IsActive
+
+Examples:
+
+project.read
+project.create
+project.update
+project.delete
+
+task.read
+task.create
+task.update
+task.delete
+task.assign
+
+milestone.read
+milestone.create
+milestone.update
+milestone.delete
+
+sprint.read
+sprint.create
+sprint.update
+sprint.delete
+
+timesheet.read
+timesheet.create
+timesheet.update
+timesheet.approve
+timesheet.reject
+
+document.read
+document.create
+document.delete
+
+audit.read
+
+Permission Code must be unique.
+
+---
+
+# 12. UserRoles
+
+Table:
+
+UserRoles
+
+Columns:
+
+UserId
+RoleId
+AssignedAt
+AssignedBy
+
+Composite primary key:
+
+UserId + RoleId
+
+Validate that User and Role belong to the same organization.
+
+---
+
+# 13. RolePermissions
+
+Table:
+
+RolePermissions
+
+Columns:
+
+RoleId
+PermissionId
+AssignedAt
+AssignedBy
+
+Composite primary key:
+
+RoleId + PermissionId
+
+---
+
+# 14. Project Statuses
+
+Table:
+
+ProjectStatuses
+
+Columns:
+
+Id
+OrganizationId
+Code
+Name
+Description
+DisplayOrder
+IsDefault
+IsFinal
+IsActive
+CreatedAt
+UpdatedAt
+CreatedBy
+UpdatedBy
+
+Default statuses:
+
+PLANNING
+ACTIVE
+ON_HOLD
+COMPLETED
+CANCELLED
+
+Unique:
+
+OrganizationId + Code
+
+Do not hard-code project statuses in application code.
+
+---
+
+# 15. Project Priorities
+
+Table:
+
+ProjectPriorities
+
+Columns:
+
+Id
+OrganizationId
+Code
+Name
+DisplayOrder
+IsActive
+
+Default:
+
+LOW
+MEDIUM
+HIGH
+CRITICAL
+
+Unique:
+
+OrganizationId + Code
+
+---
+
+# 16. Projects
+
+Table:
+
+Projects
+
+Columns:
+
+Id
+OrganizationId
+Code
+Name
+Description
+ClientId
+ManagerId
+StatusId
+PriorityId
+StartDate
+PlannedEndDate
+ActualEndDate
+CompletionPercentage
+Budget
+CurrencyCode
+IsArchived
+IsDeleted
+DeletedAt
+DeletedBy
+CreatedAt
+UpdatedAt
+CreatedBy
+UpdatedBy
+
+Foreign keys:
+
+OrganizationId → Organizations
+ManagerId → Users
+StatusId → ProjectStatuses
+PriorityId → ProjectPriorities
+
+Project Code must be unique within organization:
+
+OrganizationId + Code
+
+Indexes:
+
+OrganizationId
+OrganizationId + StatusId
+OrganizationId + ManagerId
+OrganizationId + ClientId
+OrganizationId + StartDate
+OrganizationId + PlannedEndDate
+
+Do not put Client data directly into Projects.
+
+Client should eventually belong to the CRM module.
+
+Until CRM exists, use a nullable ClientId or create a lightweight Clients table that can later be migrated to CRM.
+
+---
+
+# 17. ProjectMembers
+
+Table:
+
+ProjectMembers
+
+Columns:
+
+ProjectId
+UserId
+ProjectRole
+AllocationPercentage
+StartDate
+EndDate
+Status
+CreatedAt
+UpdatedAt
+CreatedBy
+UpdatedBy
+
+Composite primary key:
+
+ProjectId + UserId
+
+Foreign keys:
+
+ProjectId → Projects
+UserId → Users
+
+Constraints:
+
+AllocationPercentage between 0 and 100.
+
+---
+
+# 18. Task Statuses
+
+Table:
+
+TaskStatuses
+
+Columns:
+
+Id
+OrganizationId
+Code
+Name
+Description
+DisplayOrder
+IsFinal
+IsActive
+CreatedAt
+UpdatedAt
+
+Default:
+
+TODO
+IN_PROGRESS
+BLOCKED
+IN_REVIEW
+DONE
+CANCELLED
+
+Unique:
+
+OrganizationId + Code
+
+---
+
+# 19. Task Priorities
+
+Table:
+
+TaskPriorities
+
+Columns:
+
+Id
+OrganizationId
+Code
+Name
+DisplayOrder
+IsActive
+
+Default:
+
+LOW
+MEDIUM
+HIGH
+CRITICAL
+
+---
+
+# 20. Tasks
+
+Table:
+
+Tasks
+
+Columns:
+
+Id
+OrganizationId
+ProjectId
+ParentTaskId
+Title
+Description
+StatusId
+PriorityId
+AssigneeId
+ReporterId
+MilestoneId
+SprintId
+StartDate
+DueDate
+EstimatedHours
+ActualHours
+CompletionPercentage
+IsArchived
+IsDeleted
+DeletedAt
+DeletedBy
+CreatedAt
+UpdatedAt
+CreatedBy
+UpdatedBy
+
+Foreign keys:
+
+OrganizationId → Organizations
+ProjectId → Projects
+ParentTaskId → Tasks
+StatusId → TaskStatuses
+PriorityId → TaskPriorities
+AssigneeId → Users
+ReporterId → Users
+MilestoneId → Milestones
+SprintId → Sprints
+
+ParentTaskId allows hierarchical tasks/subtasks.
+
+Indexes:
+
+OrganizationId + ProjectId
+ProjectId + StatusId
+ProjectId + AssigneeId
+ProjectId + DueDate
+ProjectId + SprintId
+ProjectId + MilestoneId
+AssigneeId + StatusId
+
+---
+
+# 21. TaskWatchers
+
+Table:
+
+TaskWatchers
+
+Columns:
+
+TaskId
+UserId
+CreatedAt
+
+Composite primary key:
+
+TaskId + UserId
+
+---
+
+# 22. Milestones
+
+Table:
+
+Milestones
+
+Columns:
+
+Id
+OrganizationId
+ProjectId
+Name
+Description
+Status
+OwnerId
+DueDate
+CompletionPercentage
+CreatedAt
+UpdatedAt
+CreatedBy
+UpdatedBy
+
+Foreign keys:
+
+ProjectId → Projects
+OwnerId → Users
+
+Index:
+
+ProjectId + DueDate
+
+---
+
+# 23. Sprints
+
+Table:
+
+Sprints
+
+Columns:
+
+Id
+OrganizationId
+ProjectId
+Name
+Goal
+Status
+StartDate
+EndDate
+CreatedAt
+UpdatedAt
+CreatedBy
+UpdatedBy
+
+Default statuses:
+
+PLANNED
+ACTIVE
+COMPLETED
+CANCELLED
+
+Index:
+
+ProjectId + StartDate
+
+---
+
+# 24. SprintTasks
+
+Table:
+
+SprintTasks
+
+Columns:
+
+SprintId
+TaskId
+AddedAt
+AddedBy
+
+Composite primary key:
+
+SprintId + TaskId
+
+---
+
+# 25. Timesheets
+
+Table:
+
+Timesheets
+
+Columns:
+
+Id
+OrganizationId
+UserId
+ProjectId
+TaskId
+Date
+Hours
+Description
+Status
+SubmittedAt
+ApprovedAt
+ApprovedBy
+RejectedAt
+RejectedBy
+CreatedAt
+UpdatedAt
+CreatedBy
+UpdatedBy
+
+Statuses:
+
+DRAFT
+SUBMITTED
+APPROVED
+REJECTED
+
+Constraints:
+
+Hours > 0
+
+Foreign keys:
+
+UserId → Users
+ProjectId → Projects
+TaskId → Tasks
+
+Indexes:
+
+OrganizationId + UserId + Date
+OrganizationId + ProjectId + Date
+TaskId + Date
+Status + Date
+
+Consider whether duplicate timesheet entries are allowed.
+
+If only one entry per user/task/date is allowed, create an appropriate unique constraint.
+
+Otherwise allow multiple entries.
+
+---
+
+# 26. TimesheetApprovals
+
+Table:
+
+TimesheetApprovals
+
+Columns:
+
+Id
+TimesheetId
+ApproverId
+Action
+Comment
+CreatedAt
+
+Actions:
+
+SUBMITTED
+APPROVED
+REJECTED
+
+This table is append-only.
+
+Never update approval history.
+
+---
+
+# 27. Comments
+
+Comments must be reusable across ERP modules.
+
+Table:
+
+Comments
+
+Columns:
+
+Id
+OrganizationId
+EntityType
+EntityId
+UserId
+Content
+IsDeleted
+DeletedAt
+DeletedBy
+CreatedAt
+UpdatedAt
+CreatedBy
+UpdatedBy
+
+EntityType examples:
+
+PROJECT
+TASK
+MILESTONE
+SPRINT
+TIMESHEET
+DOCUMENT
+
+Important:
+
+Do not use a polymorphic foreign key because SQL cannot enforce it.
+
+The application must validate EntityId against EntityType.
+
+Indexes:
+
+OrganizationId + EntityType + EntityId
+EntityType + EntityId + CreatedAt
+
+---
+
+# 28. Documents
+
+Store files in Azure Blob Storage.
+
+Do NOT store binary files in Azure SQL.
+
+Table:
+
+Documents
+
+Columns:
+
+Id
+OrganizationId
+EntityType
+EntityId
+FileName
+ContentType
+FileSize
+BlobContainer
+BlobPath
+Description
+Version
+Status
+UploadedBy
+CreatedAt
+UpdatedAt
+
+Indexes:
+
+OrganizationId + EntityType + EntityId
+
+The database stores metadata only.
+
+---
+
+# 29. Notifications
+
+Table:
+
+Notifications
+
+Columns:
+
+Id
+OrganizationId
+UserId
+Type
+Title
+Message
+EntityType
+EntityId
+IsRead
+ReadAt
+CreatedAt
+
+Indexes:
+
+UserId + IsRead + CreatedAt
+
+Notification types:
+
+TASK_ASSIGNED
+TASK_DUE
+TASK_OVERDUE
+COMMENT_ADDED
+PROJECT_MEMBER_ADDED
+TIMESHEET_REJECTED
+PROJECT_UPDATED
+
+---
+
+# 30. NotificationPreferences
+
+Table:
+
+NotificationPreferences
+
+Columns:
+
+Id
+OrganizationId
+UserId
+NotificationType
+EmailEnabled
+InAppEnabled
+PushEnabled
+TeamsEnabled
+CreatedAt
+UpdatedAt
+
+Unique:
+
+UserId + NotificationType
+
+---
+
+# 31. AuditLogs
+
+Table:
+
+AuditLogs
+
+Columns:
+
+Id
+OrganizationId
+UserId
+EntityType
+EntityId
+Action
+OldValuesJson
+NewValuesJson
+IpAddress
+UserAgent
+CorrelationId
+CreatedAt
+
+Audit logs must be immutable.
+
+Never expose UPDATE or DELETE APIs for AuditLogs.
+
+Indexes:
+
+OrganizationId + EntityType + EntityId + CreatedAt
+OrganizationId + UserId + CreatedAt
+OrganizationId + CreatedAt
+
+Actions:
+
+CREATE
+UPDATE
+DELETE
+STATUS_CHANGE
+ASSIGN
+APPROVE
+REJECT
+LOGIN
+LOGOUT
+
+---
+
+# 32. CustomFields
+
+Create configurable custom fields.
+
+Table:
+
+CustomFields
+
+Columns:
+
+Id
+OrganizationId
+EntityType
+Name
+Code
+Description
+FieldType
+IsRequired
+IsActive
+DisplayOrder
+OptionsJson
+CreatedAt
+UpdatedAt
+CreatedBy
+UpdatedBy
+
+Supported types:
+
+TEXT
+NUMBER
+BOOLEAN
+DATE
+DATETIME
+SELECT
+MULTI_SELECT
+
+Unique:
+
+OrganizationId + EntityType + Code
+
+---
+
+# 33. CustomFieldValues
+
+Table:
+
+CustomFieldValues
+
+Columns:
+
+Id
+OrganizationId
+CustomFieldId
+EntityType
+EntityId
+ValueText
+ValueNumber
+ValueBoolean
+ValueDate
+ValueDateTime
+CreatedAt
+UpdatedAt
+UpdatedBy
+
+Use only the appropriate value column based on FieldType.
+
+For example:
+
+TEXT → ValueText
+NUMBER → ValueNumber
+BOOLEAN → ValueBoolean
+DATE → ValueDate
+DATETIME → ValueDateTime
+
+For SELECT/MULTI_SELECT, use ValueText or a separate normalized option/value table if required.
+
+Unique:
+
+CustomFieldId + EntityType + EntityId
+
+---
+
+# 34. Foreign Key Rules
+
+Use foreign keys wherever the relationship is stable and meaningful.
+
+Examples:
+
+Projects.OrganizationId → Organizations.Id
+
+Projects.ManagerId → Users.Id
+
+Tasks.ProjectId → Projects.Id
+
+Tasks.AssigneeId → Users.Id
+
+ProjectMembers.ProjectId → Projects.Id
+
+ProjectMembers.UserId → Users.Id
+
+Timesheets.ProjectId → Projects.Id
+
+Timesheets.TaskId → Tasks.Id
+
+Do not use cascading deletes for important ERP entities.
+
+Prefer:
+
+ON DELETE NO ACTION
+
+and perform explicit business-level deletion/archive logic.
+
+---
+
+# 35. Cross-Organization Protection
+
+Application services must validate:
+
+Entity.OrganizationId == CurrentUser.OrganizationId
+
+before:
+
+SELECT
+UPDATE
+DELETE
+
+Do not rely only on frontend filtering.
+
+Where practical, consider SQL Row-Level Security as an additional defense-in-depth mechanism.
+
+The application remains responsible for authorization.
+
+---
+
+# 36. Indexing
+
+Create indexes based on API access patterns.
+
+Do not blindly index every column.
+
+At minimum consider indexes for:
+
+Organizations.Code
+
+Users.OrganizationId + Email
+
+Users.OrganizationId + DepartmentId
+
+Projects.OrganizationId + StatusId
+
+Projects.OrganizationId + ManagerId
+
+Projects.OrganizationId + ClientId
+
+Tasks.OrganizationId + ProjectId
+
+Tasks.ProjectId + StatusId
+
+Tasks.ProjectId + AssigneeId
+
+Tasks.ProjectId + DueDate
+
+Timesheets.OrganizationId + UserId + Date
+
+Timesheets.OrganizationId + ProjectId + Date
+
+Notifications.UserId + IsRead + CreatedAt
+
+AuditLogs.OrganizationId + EntityType + EntityId + CreatedAt
+
+Comments.OrganizationId + EntityType + EntityId + CreatedAt
+
+---
+
+# 37. Unique Constraints
+
+Create appropriate uniqueness rules.
+
+Examples:
+
+Organizations.Code
+
+Users.OrganizationId + Email
+
+Roles.OrganizationId + Name
+
+Projects.OrganizationId + Code
+
+ProjectStatuses.OrganizationId + Code
+
+TaskStatuses.OrganizationId + Code
+
+ProjectMembers.ProjectId + UserId
+
+TaskWatchers.TaskId + UserId
+
+SprintTasks.SprintId + TaskId
+
+NotificationPreferences.UserId + NotificationType
+
+CustomFields.OrganizationId + EntityType + Code
+
+Do not create global uniqueness where uniqueness should only exist within an organization.
+
+---
+
+# 38. Database Schemas
+
+Use SQL schemas to separate modules.
+
+Recommended:
+
+core
+project
+shared
+
+Future:
+
+crm
+hr
+finance
+procurement
+inventory
+
+Examples:
+
+core.Users
+core.Organizations
+
+project.Projects
+project.Tasks
+project.Milestones
+project.Sprints
+
+shared.Comments
+shared.Documents
+shared.Notifications
+shared.AuditLogs
+
+This is preferable to putting every table in dbo.
+
+---
+
+# 39. Suggested complete schema
+
+Use:
+
+core.Organizations
+core.OrganizationSettings
+core.Departments
+core.Users
+core.Roles
+core.Permissions
+core.UserRoles
+core.RolePermissions
+
+project.ProjectStatuses
+project.ProjectPriorities
+project.Projects
+project.ProjectMembers
+project.TaskStatuses
+project.TaskPriorities
+project.Tasks
+project.TaskWatchers
+project.Milestones
+project.Sprints
+project.SprintTasks
+project.Timesheets
+project.TimesheetApprovals
+
+shared.Comments
+shared.Documents
+shared.Notifications
+shared.NotificationPreferences
+shared.AuditLogs
+shared.CustomFields
+shared.CustomFieldValues
+
+---
+
+# 40. Client/CRM extensibility
+
+The initial Project Management module may require clients/customers.
+
+Do not build a complex CRM inside Project Management.
+
+For the initial version create:
+
+core.Clients
+
+with:
+
+Id
+OrganizationId
+Name
+Code
+Email
+Phone
+Status
+CreatedAt
+UpdatedAt
+
+Projects.ClientId → core.Clients.Id
+
+Later, when CRM is implemented, move/extend the concept into:
+
+crm.Customers
+crm.Contacts
+crm.Opportunities
+
+Keep Project Management dependent on a stable customer identifier rather than CRM implementation details.
+
+---
+
+# 41. Future Finance Integration
+
+Design Projects so Finance can later attach:
+
+Budget
+Cost
+Revenue
+Invoices
+Expenses
+Payments
+
+Do not add financial tables into the Project schema now.
+
+Future:
+
+finance.Budgets
+finance.Expenses
+finance.Invoices
+finance.Payments
+
+They can reference:
+
+project.Projects.Id
+
+This keeps domain boundaries clean.
+
+---
+
+# 42. Future HR Integration
+
+Users are platform identities.
+
+Employees should eventually be represented separately:
+
+hr.Employees
+
+Potential relationship:
+
+core.Users
+|
+v
+hr.Employees
+
+HR can then contain:
+
+Employees
+Attendance
+Leave
+Payroll
+Performance
+
+Project Management should continue referencing core.Users.Id.
+
+---
+
+# 43. Transactions
+
+Use SQL transactions for operations requiring atomicity.
+
+Examples:
+
+Create Project + initial Project Member
+
+Approve Timesheet + create approval record
+
+Assign Task + create audit record
+
+Use EF Core transaction support.
+
+Do not create distributed transactions between Azure SQL and external services.
+
+---
+
+# 44. Outbox Pattern
+
+Implement an Outbox table:
+
+shared.OutboxMessages
+
+Columns:
+
+Id
+EventType
+AggregateType
+AggregateId
+PayloadJson
+CreatedAt
+ProcessedAt
+RetryCount
+Error
+
+When a business transaction changes SQL data:
+
+1. Update business records.
+2. Insert OutboxMessage.
+3. Commit transaction.
+4. Background Azure Function publishes event to Azure Service Bus.
+5. Mark OutboxMessage as processed.
+
+This prevents the following problem:
+
+SQL transaction succeeds
+but
+Service Bus publishing fails.
+
+---
+
+# 45. Domain Events
+
+Create events such as:
+
+ProjectCreated
+ProjectUpdated
+ProjectArchived
+
+ProjectMemberAdded
+ProjectMemberRemoved
+
+TaskCreated
+TaskUpdated
+TaskAssigned
+TaskStatusChanged
+TaskCompleted
+
+MilestoneCreated
+MilestoneCompleted
+
+SprintStarted
+SprintCompleted
+
+TimesheetSubmitted
+TimesheetApproved
+TimesheetRejected
+
+CommentAdded
+DocumentUploaded
+
+These events should be consumed by future modules without tightly coupling modules.
+
+---
+
+# 46. Stored Procedures
+
+Do NOT put all business logic in stored procedures.
+
+Use EF Core/application services for business logic.
+
+Stored procedures may be used later for:
+
+* complex reporting
+* bulk operations
+* performance-critical queries
+
+Core business workflows should remain in the application/domain layer.
+
+---
+
+# 47. Views
+
+Create views only where they provide clear value.
+
+Potential future views:
+
+project.vw_ProjectSummary
+project.vw_TaskSummary
+project.vw_TimesheetSummary
+
+Avoid creating views for every table.
+
+---
+
+# 48. Reporting
+
+Operational queries should not become increasingly complex as the ERP grows.
+
+For dashboards, consider:
+
+SQL views
+materialized/reporting tables
+Azure Data Factory
+Microsoft Fabric
+Power BI
+
+The operational database should primarily serve transactional workloads.
+
+---
+
+# 49. Data types
+
+Use appropriate SQL types.
+
+Identifiers:
+
+uniqueidentifier
+
+Names:
+
+nvarchar(200)
+
+Descriptions:
+
+nvarchar(max)
+
+Money:
+
+decimal(19,4)
+
+Hours:
+
+decimal(10,2)
+
+Percentages:
+
+decimal(5,2)
+
+Dates:
+
+date
+
+Timestamps:
+
+datetime2
+
+Boolean:
+
+bit
+
+Codes:
+
+nvarchar(50)
+
+Email:
+
+nvarchar(255)
+
+Do not use float for monetary values.
+
+---
+
+# 50. Validation constraints
+
+Add SQL constraints where appropriate.
+
+Examples:
+
+CompletionPercentage >= 0
+CompletionPercentage <= 100
+
+AllocationPercentage >= 0
+AllocationPercentage <= 100
+
+Hours > 0
+
+Budget >= 0
+
+EndDate >= StartDate where applicable.
+
+However, business validation must also exist in the application layer.
+
+Do not rely solely on database constraints for API validation.
+
+---
+
+# 51. Seed Data
+
+Create seed scripts for:
+
+Roles:
+
+SUPER_ADMIN
+ADMIN
+PROJECT_MANAGER
+PROJECT_MEMBER
+VIEWER
+
+Project statuses:
+
+PLANNING
+ACTIVE
+ON_HOLD
+COMPLETED
+CANCELLED
+
+Task statuses:
+
+TODO
+IN_PROGRESS
+BLOCKED
+IN_REVIEW
+DONE
+CANCELLED
+
+Priorities:
+
+LOW
+MEDIUM
+HIGH
+CRITICAL
+
+Permissions:
+
+project.read
+project.create
+project.update
+project.delete
+
+task.read
+task.create
+task.update
+task.delete
+task.assign
+
+milestone.read
+milestone.create
+milestone.update
+milestone.delete
+
+sprint.read
+sprint.create
+sprint.update
+sprint.delete
+
+timesheet.read
+timesheet.create
+timesheet.update
+timesheet.approve
+timesheet.reject
+
+document.read
+document.create
+document.delete
+
+audit.read
+
+notification.read
+
+Seed scripts must be idempotent.
+
+Running them multiple times must not create duplicates.
+
+---
+
+# 52. EF Core
+
+Create EF Core configurations using:
+
+IEntityTypeConfiguration<T>
+
+Do not put all configuration inside DbContext.OnModelCreating.
+
+Create separate configurations:
+
+OrganizationConfiguration
+UserConfiguration
+ProjectConfiguration
+TaskConfiguration
+TimesheetConfiguration
+etc.
+
+Configure:
+
+* primary keys
+* foreign keys
+* indexes
+* unique constraints
+* max lengths
+* required fields
+* decimal precision
+* relationships
+
+Use migrations.
+
+---
+
+# 53. DbContext
+
+Create:
+
+ERPDbContext
+
+Expose DbSets for each module.
+
+Prefer organizing configurations by module.
+
+Example:
+
+Core
+Project
+Shared
+
+Do not allow controllers/functions to directly manipulate DbContext.
+
+Use repositories/application services.
+
+---
+
+# 54. Repository Pattern
+
+Create specialized repositories where required:
+
+IProjectRepository
+ITaskRepository
+IMilestoneRepository
+ISprintRepository
+ITimesheetRepository
+IUserRepository
+INotificationRepository
+IAuditRepository
+
+Do not create unnecessary generic repository abstractions that hide EF Core functionality.
+
+Repositories should provide business-oriented queries.
+
+---
+
+# 55. Tenant-aware repositories
+
+Repositories must automatically apply:
+
+OrganizationId = CurrentOrganizationId
+
+Do not require every developer to remember to add:
+
+Where(x => x.OrganizationId == organizationId)
+
+Use a centralized tenant-aware mechanism.
+
+Consider EF Core global query filters for tenant-owned entities.
+
+However, provide a safe mechanism for privileged administrative operations that intentionally need cross-tenant access.
+
+---
+
+# 56. Concurrency
+
+Use optimistic concurrency.
+
+Add:
+
+RowVersion rowversion
+
+to important mutable entities.
+
+Examples:
+
+Projects
+Tasks
+Timesheets
+Milestones
+
+When two users edit the same entity:
+
+First update succeeds.
+
+Second update returns a concurrency conflict.
+
+Map to:
+
+HTTP 409 Conflict
+
+Do not silently overwrite changes.
+
+---
+
+# 57. Audit strategy
+
+Audit important changes:
+
+Project created
+Project updated
+Project archived
+
+Task created
+Task assigned
+Task status changed
+Task updated
+
+Milestone updated
+
+Timesheet submitted
+Timesheet approved
+Timesheet rejected
+
+Role changed
+Permission changed
+
+Document uploaded/deleted
+
+Store old/new values as JSON where appropriate.
+
+Audit logs must be append-only.
+
+---
+
+# 58. Migration strategy
+
+Create EF Core migrations:
+
+InitialCreate
+
+Then future migrations should be incremental:
+
+AddProjectFinancialFields
+AddCustomFieldOptions
+AddCrmModule
+AddHrModule
+
+Never modify production schema manually without creating a corresponding migration.
+
+Use CI/CD database migration strategy appropriate for Azure SQL.
+
+---
+
+# 59. Backup and recovery
+
+Design deployment for Azure SQL.
+
+Enable:
+
+* automated backups
+* point-in-time restore
+* appropriate retention
+* geo-redundancy based on business requirements
+
+Do not rely on application-level backups.
+
+---
+
+# 60. Security
+
+Implement:
+
+* least-privilege SQL access
+* Managed Identity where possible
+* Azure Key Vault for secrets where needed
+* encryption at rest
+* TLS
+* firewall/private endpoint strategy
+* tenant isolation
+* audit logging
+
+Application database user should not have unnecessary administrative permissions.
+
+---
+
+# 61. Performance
+
+Design for:
+
+* parameterized queries
+* proper indexes
+* pagination
+* projection queries
+* async EF Core operations
+* avoiding N+1 queries
+* avoiding unnecessary Include chains
+* no SELECT *
+* appropriate database connection pooling
+
+For list APIs, project directly into DTOs where possible.
+
+Do not retrieve entire entity graphs when only summary information is required.
+
+---
+
+# 62. Pagination
+
+All list queries must support pagination.
+
+Use:
+
+page
+pageSize
+
+for API-level pagination.
+
+For very large datasets, consider keyset/cursor pagination rather than large OFFSET queries.
+
+Maximum page size:
+
+100
+
+unless explicitly overridden for controlled internal operations.
+
+---
+
+# 63. Database documentation
+
+Generate:
+
+1. Complete database schema.
+2. Table descriptions.
+3. Column descriptions.
+4. Primary keys.
+5. Foreign keys.
+6. Unique constraints.
+7. Indexes.
+8. Relationship diagram.
+9. Module boundaries.
+10. Seed data.
+11. Migration strategy.
+12. Tenant-isolation strategy.
+13. Audit strategy.
+14. Concurrency strategy.
+15. Outbox/event strategy.
+
+Also create an ER diagram showing:
+
+Organization
+|
++-- Users
+|     |
+|     +-- Roles
+|
++-- Projects
+|
++-- ProjectMembers
+|
++-- Tasks
+|     |
+|     +-- Subtasks
+|     +-- Comments
+|     +-- Documents
+|
++-- Milestones
+|
++-- Sprints
+|
++-- Timesheets
+
+---
+
+# 64. Required database deliverables
+
+Before implementing APIs, generate:
+
+1. SQL schema design.
+2. Complete table list.
+3. Complete column dictionary.
+4. PK/FK relationship map.
+5. Index strategy.
+6. Unique constraint strategy.
+7. Tenant isolation strategy.
+8. Soft-delete strategy.
+9. Audit strategy.
+10. Concurrency strategy.
+11. Outbox strategy.
+12. Seed data.
+13. EF Core entity classes.
+14. EF Core configurations.
+15. Initial migration.
+16. Database initialization/seed implementation.
+17. ER diagram.
+18. Sample SQL queries for major access patterns.
+
+Only after these are complete should API implementation begin.
+
+---
+
+# 65. Critical design rule
+
+Do not treat the ERP as a Project Management application with additional features.
+
+Treat Project Management as the first module of an ERP platform.
+
+Core concepts such as:
+
+* Organization
+* User
+* Department
+* Role
+* Permission
+* Document
+* Notification
+* Audit
+* Custom Field
+
+must be reusable by every future module.
+
+Project-specific concepts such as:
+
+* Project
+* Task
+* Milestone
+* Sprint
+* Timesheet
+
+must remain inside the Project module.
+
+Future modules should have their own SQL schemas:
+
+core
+project
+shared
+crm
+hr
+finance
+procurement
+inventory
+
+Do not tightly couple future modules to Project Management implementation details.

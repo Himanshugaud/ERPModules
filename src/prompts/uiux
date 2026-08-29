@@ -1,0 +1,3064 @@
+# PROJECT MANAGEMENT ERP
+
+## Enterprise Modern UX/UI Master Prompt
+
+Build a production-ready, modern Construction Project Management ERP.
+
+This application is specifically designed for a **construction company** to manage its construction projects from project initiation through completion and handover.
+
+The product must support:
+
+* Multiple organizations
+* Multiple construction projects
+* Multiple sites
+* Project managers
+* Site engineers
+* Site supervisors
+* Architects
+* Consultants
+* Contractors
+* Subcontractors
+* Procurement teams
+* Finance teams
+* Management
+* Clients
+
+The first version is focused on **Construction Project Management**, but the architecture must support future ERP modules.
+
+---
+
+# 1. CORE PRODUCT PHILOSOPHY
+
+Do NOT build a generic project-management application.
+
+Do NOT simply create:
+
+Projects → Tasks → Users.
+
+Build a construction management platform around the actual construction lifecycle.
+
+The primary mental model should be:
+
+```text
+CLIENT
+   ↓
+PROJECT
+   ↓
+CONTRACT
+   ↓
+BOQ / BUDGET
+   ↓
+SCHEDULE
+   ↓
+SITE EXECUTION
+   ↓
+WORK PACKAGES
+   ↓
+RESOURCES
+   ↓
+PROCUREMENT
+   ↓
+SUBCONTRACTORS
+   ↓
+PROGRESS
+   ↓
+QUALITY / SAFETY
+   ↓
+BILLING
+   ↓
+HANDOVER
+```
+
+The UX must make this lifecycle obvious.
+
+---
+
+# 2. DESIGN PRINCIPLE
+
+The application should be:
+
+**Simple for site workers**
+
+**Powerful for site engineers**
+
+**Efficient for project managers**
+
+**Insightful for management**
+
+**Configurable for administrators**
+
+Do not expose every feature to every user.
+
+Use role-based experiences.
+
+---
+
+# 3. USER ROLES
+
+Design UX for these roles.
+
+## Management
+
+Needs:
+
+* portfolio
+* project health
+* project profitability
+* progress
+* delays
+* cost
+* cash flow
+* risks
+
+## Project Manager
+
+Needs:
+
+* project overview
+* schedule
+* budget
+* BOQ
+* progress
+* resources
+* procurement
+* subcontractors
+* quality
+* safety
+* documents
+
+## Site Engineer
+
+Needs:
+
+* today's work
+* assigned activities
+* daily progress
+* drawings
+* RFIs
+* inspections
+* materials
+* manpower
+
+## Site Supervisor
+
+Needs:
+
+* daily tasks
+* manpower
+* materials
+* progress
+* issues
+* photos
+
+The interface must be mobile-first for this role.
+
+## Procurement
+
+Needs:
+
+* material requirements
+* purchase requests
+* purchase orders
+* suppliers
+* deliveries
+
+## Quantity Surveyor
+
+Needs:
+
+* BOQ
+* quantities
+* measurements
+* variations
+* billing
+* subcontractor bills
+
+## Safety Officer
+
+Needs:
+
+* inspections
+* incidents
+* observations
+* permits
+* corrective actions
+
+## Quality Engineer
+
+Needs:
+
+* inspections
+* checklists
+* NCRs
+* approvals
+* test results
+
+## Client / Consultant
+
+Needs:
+
+* progress
+* approvals
+* drawings
+* RFIs
+* reports
+* documents
+
+---
+
+# 4. APPLICATION SHELL
+
+Create:
+
+```text
+┌─────────────────────────────────────────────────────────────┐
+│ Construction ERP    Search        🔔        User            │
+├──────────────┬──────────────────────────────────────────────┤
+│              │                                              │
+│ Dashboard    │                                              │
+│              │                                              │
+│ PROJECTS     │                MAIN CONTENT                   │
+│ Projects     │                                              │
+│ Sites        │                                              │
+│ Schedule     │                                              │
+│ BOQ          │                                              │
+│ Progress     │                                              │
+│ Procurement  │                                              │
+│ Subcontract.│                                              │
+│ Documents    │                                              │
+│ Quality      │                                              │
+│ Safety       │                                              │
+│ Reports      │                                              │
+│              │                                              │
+│ CORE         │                                              │
+│ Clients      │                                              │
+│ Suppliers    │                                              │
+│ Users        │                                              │
+│              │                                              │
+└──────────────┴──────────────────────────────────────────────┘
+```
+
+Navigation must be permission-aware.
+
+---
+
+# 5. PROJECT-FIRST ARCHITECTURE
+
+The application should revolve around:
+
+**Project Workspace**
+
+Every project contains:
+
+```text
+Project
+│
+├── Overview
+├── Contract
+├── BOQ
+├── Budget
+├── Schedule
+├── Work Packages
+├── Daily Progress
+├── Resources
+├── Materials
+├── Procurement
+├── Subcontractors
+├── Quality
+├── Safety
+├── RFIs
+├── Drawings
+├── Documents
+├── Meetings
+├── Issues
+├── Billing
+├── Reports
+└── Activity
+```
+
+---
+
+# 6. LOGIN
+
+Route:
+
+/login
+
+Support:
+
+Microsoft Entra ID / OAuth2.
+
+After login:
+
+1. Authenticate.
+2. Determine organization.
+3. Determine user role.
+4. Determine project access.
+5. Load permissions.
+6. Open dashboard.
+
+---
+
+# 7. ORGANIZATION SELECTION
+
+If user belongs to multiple organizations:
+
+```text
+Choose Organization
+
+ABC Construction Pvt Ltd
+
+[Open]
+```
+
+If only one organization:
+
+Skip this screen.
+
+---
+
+# 8. DASHBOARD
+
+Route:
+
+/dashboard
+
+Dashboard should answer:
+
+**How are my construction projects performing?**
+
+Top KPIs:
+
+Projects
+Active Sites
+Projects At Risk
+Delayed Projects
+Total Contract Value
+Budget
+Actual Cost
+Pending Approvals
+
+---
+
+# 9. MANAGEMENT DASHBOARD
+
+Display:
+
+```text
+Project Portfolio
+
+Total Projects       24
+Active               18
+At Risk               4
+Delayed               2
+
+Contract Value
+₹125 Cr
+
+Actual Cost
+₹82 Cr
+
+Overall Progress
+64%
+```
+
+Charts:
+
+Project progress
+Budget vs actual
+Project profitability
+Delay trend
+Cash flow
+Project status
+
+---
+
+# 10. PROJECT PORTFOLIO
+
+Route:
+
+/projects
+
+Display:
+
+Project
+Client
+Location
+Contract Value
+Progress
+Budget
+Actual Cost
+Schedule
+Health
+Project Manager
+
+Example:
+
+```text
+Metro Tower
+
+ABC Developers
+
+₹25 Cr
+
+██████████████░░ 72%
+
+Budget: ₹21 Cr
+Actual: ₹18.5 Cr
+
+● On Track
+
+Due: Dec 2026
+```
+
+Actions:
+
+Open
+Edit
+Archive
+Reports
+
+---
+
+# 11. CREATE PROJECT
+
+Fields:
+
+## Project Information
+
+Project Name
+Project Code
+Project Type
+Description
+
+## Client
+
+Client
+Consultant
+Architect
+
+## Location
+
+Site Address
+City
+State
+Country
+Coordinates
+
+## Contract
+
+Contract Number
+Contract Value
+Contract Date
+Start Date
+Planned Completion
+
+## Project Team
+
+Project Manager
+Site Manager
+
+## Financial
+
+Currency
+Budget
+
+---
+
+# 12. PROJECT WORKSPACE
+
+This is the central screen.
+
+Header:
+
+```text
+Metro Tower
+PRJ-001
+
+Mumbai
+
+₹25 Cr
+
+72% Complete
+
+● At Risk
+
+[+ Add] [Edit] [Reports] [•••]
+```
+
+Tabs:
+
+Overview
+Contract
+BOQ
+Schedule
+Execution
+Progress
+Procurement
+Subcontractors
+Quality
+Safety
+Documents
+Billing
+Reports
+Activity
+
+---
+
+# 13. PROJECT OVERVIEW
+
+Display:
+
+Project Health
+Overall Progress
+Contract Value
+Budget
+Actual Cost
+Committed Cost
+Forecast Cost
+Schedule
+Days Remaining
+
+---
+
+# 14. PROJECT HEALTH
+
+Health:
+
+ON TRACK
+AT RISK
+DELAYED
+
+Calculate based on:
+
+Schedule
+Cost
+Progress
+Open Issues
+Quality
+Safety
+
+Display:
+
+```text
+Project Health
+
+● At Risk
+
+Schedule
+⚠ 8 days behind
+
+Cost
+✓ Within budget
+
+Progress
+⚠ 6% behind plan
+```
+
+---
+
+# 15. CONTRACT SCREEN
+
+Display:
+
+Contract Number
+Client
+Contract Value
+Start Date
+Completion Date
+Retention
+Payment Terms
+Contract Type
+
+Actions:
+
+Edit
+Upload Contract
+View Documents
+
+---
+
+# 16. BOQ SCREEN
+
+This is a critical construction screen.
+
+Route:
+
+/projects/{id}/boq
+
+Display:
+
+```text
+BOQ
+
+Item | Description | Unit | Qty | Rate | Amount
+```
+
+Example:
+
+```text
+01
+Earthwork
+m³
+5,000
+₹850
+₹42,50,000
+
+02
+Concrete
+m³
+2,500
+₹7,500
+₹1,87,50,000
+
+03
+Steel
+MT
+500
+₹65,000
+₹3,25,00,000
+```
+
+Features:
+
+Search
+Filter
+Import Excel
+Export Excel
+Add Item
+Edit
+Delete
+
+---
+
+# 17. BOQ HIERARCHY
+
+Support:
+
+BOQ Section
+→ Subsection
+→ Item
+
+Example:
+
+```text
+Civil Works
+    Earthwork
+        Excavation
+        Backfilling
+
+Structural Works
+    Concrete
+        Foundation
+        Columns
+        Beams
+        Slabs
+
+Finishing
+    Flooring
+    Painting
+    Doors
+```
+
+---
+
+# 18. BOQ IMPORT
+
+Provide:
+
+[Import BOQ]
+
+Support Excel upload.
+
+Show:
+
+Upload
+Validate
+Preview
+Import
+
+Before importing:
+
+Display errors:
+
+Missing Unit
+Invalid Quantity
+Duplicate Item
+
+Allow user to fix before import.
+
+---
+
+# 19. BUDGET SCREEN
+
+Display:
+
+Original Budget
+Approved Changes
+Current Budget
+Committed Cost
+Actual Cost
+Forecast Cost
+Variance
+
+Example:
+
+```text
+Budget
+₹21.0 Cr
+
+Committed
+₹18.5 Cr
+
+Actual
+₹15.2 Cr
+
+Forecast
+₹20.4 Cr
+
+Variance
+₹0.6 Cr
+```
+
+---
+
+# 20. COST BREAKDOWN
+
+Break down by:
+
+BOQ
+Material
+Labour
+Equipment
+Subcontractor
+Overhead
+
+Show:
+
+Budget
+Actual
+Committed
+Forecast
+Variance
+
+---
+
+# 21. SCHEDULE
+
+Route:
+
+/projects/{id}/schedule
+
+Provide:
+
+List
+Timeline
+Gantt
+
+Default:
+
+Gantt for project managers.
+
+---
+
+# 22. CONSTRUCTION GANTT
+
+Display:
+
+```text
+Activity             Aug  Sep  Oct  Nov  Dec
+
+Foundation           ███████
+
+Structure                 █████████████
+
+Brickwork                         █████████
+
+MEP                                      ███████
+
+Finishing                                  ███████████
+```
+
+Support:
+
+Start
+End
+Duration
+Dependencies
+Progress
+Responsible person
+
+---
+
+# 23. SCHEDULE ACTIVITIES
+
+Each activity:
+
+Activity Name
+WBS Code
+BOQ Item
+Start
+End
+Duration
+Planned Quantity
+Actual Quantity
+Progress
+Owner
+
+Actions:
+
+Edit
+Assign
+Update Progress
+Add Dependency
+
+---
+
+# 24. WORK BREAKDOWN STRUCTURE
+
+Support:
+
+Project
+→ Building
+→ Floor
+→ Zone
+→ Work Package
+→ Activity
+
+Example:
+
+```text
+Tower A
+ ├── Basement
+ ├── Ground Floor
+ ├── Floor 1
+ ├── Floor 2
+ └── Floor 3
+```
+
+This hierarchy should be reusable throughout the application.
+
+---
+
+# 25. DAILY SITE PROGRESS
+
+This should be one of the most important screens.
+
+Route:
+
+/projects/{id}/daily-progress
+
+Display:
+
+Date
+Weather
+Manpower
+Equipment
+Activities
+Materials
+Progress
+Issues
+Photos
+
+---
+
+# 26. DAILY REPORT
+
+Site supervisor should be able to create a daily report quickly.
+
+Mobile-first.
+
+Form:
+
+Date
+
+Weather
+
+Site Conditions
+
+Manpower
+
+Equipment
+
+Activities Completed
+
+Material Received
+
+Issues
+
+Safety Observations
+
+Photos
+
+Button:
+
+[Submit Daily Report]
+
+---
+
+# 27. DAILY ACTIVITY PROGRESS
+
+Example:
+
+```text
+Activity              Planned   Actual   Progress
+
+Concrete              100 m³    85 m³    85%
+
+Brickwork             500 m²    430 m²   86%
+
+Plaster               300 m²    180 m²   60%
+```
+
+Allow site engineer to update actual quantity.
+
+---
+
+# 28. PHOTO DOCUMENTATION
+
+Allow mobile users to:
+
+Take Photo
+Upload Photo
+
+Automatically associate:
+
+Project
+Site
+Date
+Activity
+User
+
+Display photo timeline.
+
+---
+
+# 29. SITE MAP
+
+Create:
+
+/projects/{id}/site
+
+Display:
+
+Site map
+Buildings
+Floors
+Zones
+Work packages
+
+Allow clicking zones to see:
+
+Progress
+Issues
+Photos
+Activities
+
+---
+
+# 30. RESOURCES
+
+Route:
+
+/projects/{id}/resources
+
+Track:
+
+Manpower
+Equipment
+Materials
+
+---
+
+# 31. MANPOWER
+
+Display:
+
+Employee
+Trade
+Role
+Daily Hours
+Allocation
+Attendance
+
+Example:
+
+```text
+Masons       25
+Carpenters   18
+Electricians 12
+Helpers      35
+
+Total        90
+```
+
+---
+
+# 32. EQUIPMENT
+
+Track:
+
+Equipment
+Type
+Quantity
+Hours Used
+Location
+Status
+
+Example:
+
+Excavator
+Crane
+Concrete Mixer
+Generator
+
+Actions:
+
+Assign
+Transfer
+Log Usage
+Maintenance
+
+---
+
+# 33. MATERIALS
+
+Track:
+
+Material
+Unit
+Required
+Ordered
+Delivered
+Consumed
+Remaining
+
+Example:
+
+```text
+Cement
+
+Required     2,500 bags
+Ordered      2,300
+Delivered    2,000
+Consumed     1,650
+Remaining      350
+```
+
+---
+
+# 34. PROCUREMENT
+
+Route:
+
+/procurement
+
+Display:
+
+Material Requests
+Purchase Requests
+Purchase Orders
+Deliveries
+
+Project-specific procurement should be accessible from the Project Workspace.
+
+---
+
+# 35. MATERIAL REQUEST
+
+Site user:
+
+[Request Material]
+
+Fields:
+
+Material
+Quantity
+Required Date
+Work Package
+Priority
+Notes
+
+Button:
+
+Submit Request
+
+---
+
+# 36. PURCHASE REQUEST
+
+Display:
+
+Request
+Project
+Material
+Quantity
+Requester
+Required Date
+Status
+
+Statuses:
+
+Draft
+Submitted
+Approved
+Rejected
+Ordered
+
+---
+
+# 37. PURCHASE ORDER
+
+Display:
+
+PO Number
+Supplier
+Project
+Items
+Amount
+Delivery Date
+Status
+
+Actions:
+
+Create
+Approve
+Send
+Receive
+Cancel
+
+---
+
+# 38. MATERIAL RECEIPT
+
+When materials arrive:
+
+Record:
+
+PO
+Material
+Quantity Ordered
+Quantity Received
+Rejected Quantity
+Delivery Date
+Supplier
+Invoice
+Photos
+
+---
+
+# 39. SUBCONTRACTORS
+
+Route:
+
+/projects/{id}/subcontractors
+
+Display:
+
+Company
+Trade
+Contract Value
+Progress
+Billed
+Paid
+Balance
+Performance
+
+---
+
+# 40. SUBCONTRACTOR CONTRACT
+
+Display:
+
+Subcontractor
+Scope
+Contract Value
+Start
+End
+Retention
+Payment Terms
+
+---
+
+# 41. SUBCONTRACTOR PROGRESS
+
+Track:
+
+Contract Quantity
+Completed Quantity
+Progress %
+Certified Amount
+Billed Amount
+Paid Amount
+
+---
+
+# 42. MEASUREMENT BOOK
+
+Create:
+
+/projects/{id}/measurements
+
+Display:
+
+BOQ Item
+Date
+Location
+Description
+Quantity
+Unit
+Rate
+Amount
+
+Allow site engineer/QS to record measurements.
+
+---
+
+# 43. RUNNING ACCOUNT BILL
+
+Create:
+
+/projects/{id}/billing
+
+Display:
+
+Previous Certified
+Current Work
+Retention
+Deductions
+Net Payable
+
+Actions:
+
+Create RA Bill
+Submit
+Approve
+Reject
+Export
+
+---
+
+# 44. CLIENT BILLING
+
+Track:
+
+Contract Value
+Work Completed
+Certified
+Billed
+Received
+Outstanding
+
+Display:
+
+```text
+Contract       ₹25 Cr
+Completed      ₹18 Cr
+Certified      ₹17 Cr
+Billed         ₹16 Cr
+Received       ₹14 Cr
+Outstanding     ₹2 Cr
+```
+
+---
+
+# 45. QUALITY MANAGEMENT
+
+Create:
+
+/projects/{id}/quality
+
+Sections:
+
+Inspections
+Checklists
+NCRs
+Tests
+Approvals
+
+---
+
+# 46. INSPECTION REQUEST
+
+Create:
+
+Inspection Request
+
+Fields:
+
+Activity
+Location
+Date
+Inspector
+Consultant
+Description
+Attachments
+
+Statuses:
+
+Draft
+Submitted
+Scheduled
+Passed
+Failed
+
+---
+
+# 47. QUALITY CHECKLIST
+
+Create reusable checklists.
+
+Example:
+
+Concrete Pour Checklist
+
+* Formwork checked
+* Reinforcement checked
+* Cover checked
+* Embedded items checked
+* Concrete grade verified
+* Slump tested
+
+Allow:
+
+Pass
+Fail
+N/A
+Remarks
+Photo
+
+---
+
+# 48. NCR
+
+Non-Conformance Report.
+
+Display:
+
+NCR Number
+Issue
+Location
+Activity
+Responsible Contractor
+Severity
+Date
+Status
+
+Statuses:
+
+Open
+Under Review
+Corrective Action
+Verified
+Closed
+
+Actions:
+
+Create
+Assign
+Add Corrective Action
+Verify
+Close
+
+---
+
+# 49. SAFETY MODULE
+
+Route:
+
+/projects/{id}/safety
+
+Display:
+
+Safety Inspections
+Incidents
+Observations
+Permits
+Corrective Actions
+
+---
+
+# 50. SAFETY INCIDENT
+
+Create:
+
+Incident Date
+Location
+Type
+Severity
+Description
+People Involved
+Photos
+Immediate Action
+Corrective Action
+
+Statuses:
+
+Open
+Investigating
+Corrective Action
+Closed
+
+---
+
+# 51. SAFETY OBSERVATION
+
+Mobile-first:
+
+[+ New Observation]
+
+Fields:
+
+Location
+Observation
+Severity
+Photo
+Action Required
+
+---
+
+# 52. DRAWINGS
+
+Route:
+
+/projects/{id}/drawings
+
+Display:
+
+Drawing Number
+Title
+Discipline
+Revision
+Status
+Uploaded Date
+
+Example:
+
+A-101
+Floor Plan
+Architecture
+Rev 03
+Approved
+
+Actions:
+
+View
+Download
+Upload Revision
+Compare
+
+---
+
+# 53. DRAWING REVISION
+
+When new revision is uploaded:
+
+Keep history.
+
+Example:
+
+```text
+A-101
+
+Rev 01
+Rev 02
+Rev 03 ← Current
+```
+
+Never overwrite old drawings.
+
+---
+
+# 54. RFI
+
+Request for Information.
+
+Route:
+
+/projects/{id}/rfis
+
+Display:
+
+RFI Number
+Subject
+Discipline
+Raised By
+Assigned To
+Due Date
+Status
+
+Statuses:
+
+Draft
+Open
+Responded
+Closed
+
+---
+
+# 55. RFI DETAIL
+
+Display:
+
+Question
+Related Drawing
+Related Activity
+Attachments
+Response
+History
+
+Actions:
+
+Submit
+Respond
+Close
+
+---
+
+# 56. DOCUMENT MANAGEMENT
+
+Project documents:
+
+Contracts
+Drawings
+Specifications
+Method Statements
+Reports
+Approvals
+Certificates
+Photos
+
+Use folder/category organization.
+
+---
+
+# 57. DOCUMENT VERSIONING
+
+Documents should maintain versions.
+
+Example:
+
+Method Statement
+
+v1
+v2
+v3 Current
+
+Allow:
+
+Upload New Version
+Download
+Preview
+
+---
+
+# 58. MEETINGS
+
+Create:
+
+/projects/{id}/meetings
+
+Display:
+
+Meeting
+Date
+Participants
+Type
+Status
+
+Types:
+
+Client Meeting
+Site Meeting
+Design Meeting
+Safety Meeting
+Progress Meeting
+
+---
+
+# 59. MEETING MINUTES
+
+Create:
+
+Meeting details
+Participants
+Agenda
+Discussion
+Decisions
+Action Items
+
+Action Item:
+
+Description
+Owner
+Due Date
+Status
+
+---
+
+# 60. ISSUES
+
+Route:
+
+/projects/{id}/issues
+
+Display:
+
+Issue
+Category
+Priority
+Owner
+Due Date
+Status
+
+Categories:
+
+Design
+Material
+Labour
+Equipment
+Client
+Consultant
+Subcontractor
+Weather
+Site
+
+---
+
+# 61. ISSUE DETAIL
+
+Display:
+
+Description
+Location
+Photos
+Responsible Person
+Impact
+Root Cause
+Corrective Action
+Due Date
+
+---
+
+# 62. PROJECT ACTIVITY
+
+Timeline:
+
+Project created
+BOQ imported
+Drawing uploaded
+RFI raised
+Material received
+Progress updated
+Inspection passed
+NCR created
+Payment approved
+
+Filter:
+
+User
+Type
+Date
+
+---
+
+# 63. PROJECT REPORTS
+
+Create:
+
+Project Progress Report
+Cost Report
+BOQ Report
+Schedule Report
+Procurement Report
+Material Report
+Subcontractor Report
+Quality Report
+Safety Report
+Billing Report
+
+---
+
+# 64. EXECUTIVE REPORT
+
+Show:
+
+Project Health
+Progress
+Budget
+Forecast
+Schedule Variance
+Cost Variance
+Major Risks
+
+---
+
+# 65. PROGRESS REPORT
+
+Display:
+
+Planned Progress
+Actual Progress
+Variance
+
+Example:
+
+```text
+Planned     68%
+Actual      62%
+
+Variance    -6%
+```
+
+Chart:
+
+Planned vs Actual cumulative progress.
+
+---
+
+# 66. COST REPORT
+
+Display:
+
+Budget
+Committed
+Actual
+Forecast
+
+Breakdown:
+
+Material
+Labour
+Equipment
+Subcontractor
+Overhead
+
+---
+
+# 67. SCHEDULE REPORT
+
+Display:
+
+Planned Completion
+Forecast Completion
+Delay
+
+Critical activities
+
+Upcoming milestones
+
+---
+
+# 68. PROJECT RISK
+
+Create:
+
+/projects/{id}/risks
+
+Fields:
+
+Risk
+Probability
+Impact
+Score
+Owner
+Mitigation
+Status
+
+Risk matrix:
+
+Low
+Medium
+High
+Critical
+
+---
+
+# 69. PROJECT CLOSEOUT
+
+When project is nearing completion:
+
+Closeout checklist:
+
+Final inspection
+Snagging
+Client approval
+As-built drawings
+Certificates
+Final bill
+Retention
+Document handover
+Warranty
+
+---
+
+# 70. SNAGGING
+
+Create:
+
+/projects/{id}/snags
+
+Display:
+
+Snag
+Location
+Description
+Priority
+Assigned To
+Due Date
+Status
+
+Statuses:
+
+Open
+Assigned
+In Progress
+Resolved
+Verified
+Closed
+
+Allow photo.
+
+---
+
+# 71. HANDOVER
+
+Handover screen:
+
+Completion Certificate
+As-built Drawings
+O&M Manuals
+Warranties
+Final Bills
+Client Sign-off
+
+Button:
+
+Complete Handover
+
+---
+
+# 72. PROJECT CLOSURE
+
+Final screen:
+
+```text
+Project Completion
+
+✓ Construction completed
+✓ Snags resolved
+✓ Client approved
+✓ Documents handed over
+✓ Final bill submitted
+
+[Close Project]
+```
+
+---
+
+# 73. MOBILE-FIRST SITE EXPERIENCE
+
+The site experience is critical.
+
+Create a dedicated mobile UX.
+
+Bottom navigation:
+
+```text
+Home
+Work
+Progress
+Issues
+More
+```
+
+Quick actions:
+
+* Daily Report
+* Progress
+* Material Request
+* Issue
+* Photo
+* Safety Observation
+
+---
+
+# 74. SITE MOBILE HOME
+
+Show:
+
+Today's Tasks
+
+Today's Progress
+
+Pending Inspections
+
+Material Deliveries
+
+Open Issues
+
+Safety Alerts
+
+---
+
+# 75. OFFLINE SUPPORT
+
+Construction sites may have poor connectivity.
+
+Design the application to support offline-capable workflows where practical.
+
+Allow users to capture:
+
+Daily Reports
+Photos
+Progress
+Issues
+Safety Observations
+
+Store locally.
+
+When connectivity returns:
+
+Sync
+
+Show:
+
+Pending Sync
+Synced
+Sync Failed
+
+---
+
+# 76. PHOTO EXPERIENCE
+
+Allow:
+
+Camera
+Gallery
+
+Automatically associate:
+
+Project
+Site
+Date
+Activity
+User
+
+Compress images before upload where appropriate.
+
+---
+
+# 77. LOCATION
+
+Where permitted, capture site/location information.
+
+Do not expose precise location unnecessarily.
+
+Use location primarily to associate site activity with the correct project/site.
+
+---
+
+# 78. NOTIFICATIONS
+
+Notify users about:
+
+Task assignment
+RFI assignment
+Inspection request
+NCR
+Safety incident
+Material delivery
+Approval request
+Timesheet
+Project delay
+Overdue activity
+
+Notifications should link directly to the relevant entity.
+
+---
+
+# 79. APPROVAL CENTER
+
+Create centralized:
+
+/approvals
+
+Display pending approvals:
+
+BOQ
+Purchase Request
+Purchase Order
+Inspection
+RFI
+Subcontractor Bill
+Timesheet
+Project Change
+Client Billing
+
+Example:
+
+```text
+Pending Approvals
+
+Purchase Order       ₹4.2L    [Review]
+Inspection Request            [Review]
+Subcontractor Bill  ₹8.5L     [Review]
+```
+
+This should become a major enterprise UX feature.
+
+---
+
+# 80. APPROVAL WORKFLOW
+
+Every approval should follow:
+
+Draft
+↓
+Submitted
+↓
+Under Review
+↓
+Approved / Rejected
+
+Show:
+
+Current approver
+Previous approvals
+Comments
+History
+
+---
+
+# 81. SEARCH
+
+Global search should search:
+
+Projects
+BOQ Items
+Tasks
+Drawings
+RFIs
+Materials
+Suppliers
+Subcontractors
+Documents
+Employees
+
+---
+
+# 82. GLOBAL QUICK CREATE
+
+Use:
+
+Ctrl/Cmd + K
+
+Actions:
+
+New Project
+New Task
+Daily Report
+Material Request
+RFI
+Inspection
+Issue
+Safety Observation
+Document
+Meeting
+
+Context should automatically populate project/site.
+
+---
+
+# 83. PROJECT QUICK CREATE
+
+Inside a project:
+
+* Add
+
+Options:
+
+Work Activity
+Daily Report
+Progress
+Material Request
+RFI
+Inspection
+Issue
+Document
+Meeting
+Safety Observation
+Subcontractor Bill
+
+---
+
+# 84. PROJECT DASHBOARD UX
+
+The Project Dashboard should be configurable.
+
+Widgets:
+
+Progress
+Cost
+Schedule
+BOQ
+Materials
+Manpower
+Equipment
+Quality
+Safety
+Procurement
+Billing
+Risks
+
+Users can:
+
+Add Widget
+Remove Widget
+Reorder Widget
+
+Save personal dashboard layout.
+
+---
+
+# 85. PROJECT STATUS BAR
+
+At the top of project workspace:
+
+```text
+Progress 62%
+Schedule -6 days
+Cost +2%
+Quality 94%
+Safety Good
+Procurement 88%
+```
+
+This gives management an instant project snapshot.
+
+---
+
+# 86. PROJECT SCORE
+
+Create overall project score:
+
+```text
+PROJECT HEALTH
+
+72 / 100
+
+Schedule       65
+Cost           80
+Progress       70
+Quality        90
+Safety         95
+```
+
+Do not make this the only source of truth.
+
+Allow drill-down.
+
+---
+
+# 87. ENTERPRISE TABLE UX
+
+Reusable table supports:
+
+Search
+Filter
+Sort
+Pagination
+Column visibility
+Saved views
+Export
+Bulk actions
+
+Default view should remain simple.
+
+---
+
+# 88. BULK ACTIONS
+
+Examples:
+
+Assign activities
+Change status
+Approve
+Export
+Archive
+
+Only show after rows are selected.
+
+---
+
+# 89. FILTER SYSTEM
+
+Basic filters:
+
+Status
+Project
+Site
+Owner
+
+Advanced:
+
+Date
+Contract
+BOQ
+Work Package
+Subcontractor
+Supplier
+Custom Fields
+
+---
+
+# 90. SAVED VIEWS
+
+Users can save:
+
+My Delayed Activities
+Pending RFIs
+Open NCRs
+Material Pending
+Overdue Inspections
+Pending Approvals
+
+---
+
+# 91. PERMISSION MODEL
+
+UI must be permission-aware.
+
+Examples:
+
+Project Manager:
+
+Project update
+
+Site Engineer:
+
+Progress update
+
+Quantity Surveyor:
+
+BOQ / measurement / billing
+
+Safety Officer:
+
+Safety module
+
+Quality Engineer:
+
+Quality module
+
+Procurement:
+
+Procurement module
+
+Management:
+
+Reports
+
+---
+
+# 92. ROLE-SPECIFIC DASHBOARD
+
+Do not show the same dashboard to everyone.
+
+Management:
+
+Portfolio
+
+Project Manager:
+
+Project health
+
+Site Engineer:
+
+Today's work
+
+Site Supervisor:
+
+Daily execution
+
+Procurement:
+
+Pending purchases
+
+QS:
+
+BOQ and billing
+
+Safety:
+
+Safety incidents
+
+Quality:
+
+Inspections/NCR
+
+---
+
+# 93. ENTITY RELATIONSHIPS
+
+The UI should connect related entities.
+
+Example:
+
+BOQ Item
+
+→ Schedule Activity
+
+→ Progress
+
+→ Material
+
+→ Cost
+
+→ Billing
+
+Similarly:
+
+Drawing
+
+→ RFI
+
+→ Issue
+
+→ Activity
+
+→ Approval
+
+---
+
+# 94. CONTEXTUAL NAVIGATION
+
+If user opens:
+
+RFI
+
+show:
+
+Project
+Related Drawing
+Related Activity
+Related Issue
+
+Clicking each should navigate without losing project context.
+
+---
+
+# 95. AUDIT
+
+Every important change should be visible:
+
+Who
+What
+When
+Old value
+New value
+
+Example:
+
+```text
+John changed progress
+
+62% → 68%
+
+Today 10:42 AM
+```
+
+---
+
+# 96. DESIGN SYSTEM
+
+Create reusable:
+
+Button
+Table
+Form
+Drawer
+Dialog
+Timeline
+Status Badge
+Progress Bar
+Metric Card
+Chart
+File Upload
+Photo Gallery
+Activity Feed
+Approval Card
+Entity Header
+Filter Bar
+Search
+Command Palette
+
+---
+
+# 97. DRAWER UX
+
+Use drawers for:
+
+Task
+RFI
+Issue
+Inspection
+NCR
+Material Request
+
+Use full pages for:
+
+Project
+BOQ
+Schedule
+Reports
+Settings
+
+---
+
+# 98. INLINE EDITING
+
+Allow inline editing for:
+
+Status
+Priority
+Assignee
+Due Date
+Progress
+
+Where appropriate.
+
+---
+
+# 99. ERROR HANDLING
+
+Errors must be understandable.
+
+Examples:
+
+"Unable to save progress."
+
+"This BOQ item cannot be deleted because it has associated measurements."
+
+"This purchase order has already been approved."
+
+---
+
+# 100. EMPTY STATES
+
+Example:
+
+No RFIs
+
+"No RFIs have been raised for this project."
+
+[Create RFI]
+
+---
+
+# 101. LOADING STATES
+
+Use skeletons.
+
+Tables:
+
+Skeleton rows.
+
+Project:
+
+Skeleton dashboard.
+
+Reports:
+
+Skeleton charts.
+
+---
+
+# 102. MOBILE DESIGN
+
+Site users should be able to complete common workflows with one hand.
+
+Large touch targets.
+
+Minimal typing.
+
+Use:
+
+Dropdowns
+Camera
+Date shortcuts
+Quick actions
+Voice-friendly notes where supported
+
+---
+
+# 103. RESPONSIVE BREAKPOINTS
+
+Desktop:
+
+Management / Project Management
+
+Tablet:
+
+Site Engineer
+
+Mobile:
+
+Site Supervisor
+
+---
+
+# 104. DARK MODE
+
+Support:
+
+Light
+Dark
+
+Use semantic design tokens.
+
+---
+
+# 105. EXTENSIBILITY
+
+The architecture must support future modules:
+
+CRM
+Finance
+HR
+Procurement
+Inventory
+
+However, construction-specific Project Management remains the core.
+
+Future module example:
+
+```text
+PROJECT MANAGEMENT
+Projects
+Sites
+BOQ
+Schedule
+Execution
+Progress
+Procurement
+Subcontractors
+Quality
+Safety
+Billing
+Reports
+
+CRM
+Coming Soon
+
+HR
+Coming Soon
+
+FINANCE
+Coming Soon
+```
+
+---
+
+# 106. PROJECT NAVIGATION
+
+Do not create a huge permanent sidebar.
+
+Global navigation:
+
+Dashboard
+Projects
+Approvals
+Reports
+
+When inside a project, show:
+
+Overview
+Contract
+BOQ
+Budget
+Schedule
+Execution
+Progress
+Procurement
+Subcontractors
+Quality
+Safety
+Documents
+Billing
+Reports
+Activity
+
+This keeps the global application simple.
+
+---
+
+# 107. PROJECT CONTEXT HEADER
+
+Always show:
+
+Project Name
+Project Code
+Site
+Client
+Project Manager
+Status
+Progress
+
+Example:
+
+```text
+Metro Tower
+PRJ-001
+
+Mumbai
+ABC Developers
+
+Project Manager: John Smith
+
+72% Complete
+● At Risk
+```
+
+---
+
+# 108. PROJECT COMMAND CENTER
+
+The Project Overview should act as the project command center.
+
+Display:
+
+```text
+PROJECT HEALTH
+
+Progress       72%
+Schedule       -8 days
+Cost           +2%
+Quality        94%
+Safety         Good
+
+────────────────────────────
+
+TODAY
+
+12 Activities
+3 Inspections
+2 Material Deliveries
+4 Open Issues
+
+────────────────────────────
+
+ATTENTION REQUIRED
+
+⚠ Foundation delayed
+⚠ Steel delivery overdue
+⚠ RFI #124 awaiting response
+```
+
+This is the screen Project Managers should open every morning.
+
+---
+
+# 109. SITE COMMAND CENTER
+
+Site Engineer's home:
+
+```text
+TODAY
+
+Activities
+12
+
+Progress
+68%
+
+Manpower
+124
+
+Material Deliveries
+5
+
+Inspections
+3
+
+Open Issues
+7
+
+[Daily Report]
+[Update Progress]
+[Request Material]
+[Raise Issue]
+```
+
+---
+
+# 110. MANAGEMENT COMMAND CENTER
+
+Management:
+
+```text
+PORTFOLIO
+
+24 Projects
+₹125 Cr Contract Value
+
+18 On Track
+4 At Risk
+2 Delayed
+
+Progress
+64%
+
+Budget Variance
++1.8%
+
+Cash Outstanding
+₹14 Cr
+```
+
+Click any metric to drill into projects.
+
+---
+
+# 111. REPORTING HIERARCHY
+
+Reports should support:
+
+Portfolio
+↓
+Project
+↓
+Site
+↓
+Building
+↓
+Floor
+↓
+Zone
+↓
+Activity
+↓
+BOQ Item
+
+This hierarchy is important for construction analytics.
+
+---
+
+# 112. UX GOAL
+
+The system should make these questions easy to answer:
+
+### Management
+
+"Which projects are delayed?"
+
+"Which projects are losing money?"
+
+"Where is cash stuck?"
+
+### Project Manager
+
+"Are we on schedule?"
+
+"Are we within budget?"
+
+"What needs attention today?"
+
+### Site Engineer
+
+"What work needs to happen today?"
+
+"What materials are required?"
+
+"What inspections are pending?"
+
+### QS
+
+"How much work is completed?"
+
+"What can I bill?"
+
+"What variations have occurred?"
+
+### Procurement
+
+"What material is needed?"
+
+"What is ordered?"
+
+"What is overdue?"
+
+### Safety
+
+"What incidents are open?"
+
+"What inspections are due?"
+
+### Quality
+
+"What inspections failed?"
+
+"Which NCRs are open?"
+
+---
+
+# 113. FINAL USER JOURNEY
+
+The primary experience should be:
+
+```text
+LOGIN
+ ↓
+ORGANIZATION
+ ↓
+DASHBOARD
+ ↓
+PROJECT
+ ↓
+PROJECT COMMAND CENTER
+ ↓
+┌─────────────────────────────────────────────┐
+│                                             │
+│ CONTRACT       BOQ        BUDGET            │
+│                                             │
+│ SCHEDULE       EXECUTION  PROGRESS          │
+│                                             │
+│ PROCUREMENT    MATERIALS SUBCONTRACTORS     │
+│                                             │
+│ QUALITY        SAFETY     RFIs              │
+│                                             │
+│ DRAWINGS       DOCUMENTS  BILLING           │
+│                                             │
+└─────────────────────────────────────────────┘
+```
+
+---
+
+# 114. FINAL DESIGN PHILOSOPHY
+
+Do not build this as:
+
+"Construction company + generic task management."
+
+Build it as:
+
+**"A digital operating system for construction projects."**
+
+The application should connect:
+
+```text
+BOQ
+ ↓
+SCHEDULE
+ ↓
+WORK
+ ↓
+PROGRESS
+ ↓
+MATERIAL
+ ↓
+COST
+ ↓
+QUALITY
+ ↓
+SAFETY
+ ↓
+BILLING
+ ↓
+PROJECT PROFITABILITY
+```
+
+Every important piece of construction data should be traceable back to the:
+
+**Project → Site → WBS → Work Package → Activity → BOQ Item**
+
+The UX should hide this complexity from normal users while allowing enterprise users to drill down when required.
+
+---
+
+# 115. IMPLEMENTATION ORDER
+
+Build in this order:
+
+## Phase 1
+
+Authentication
+Organization
+Application Shell
+Roles
+Permissions
+
+## Phase 2
+
+Dashboard
+Projects
+Project Workspace
+
+## Phase 3
+
+Contract
+BOQ
+Budget
+WBS
+Schedule
+Gantt
+
+## Phase 4
+
+Daily Progress
+Site Execution
+Manpower
+Equipment
+Materials
+
+## Phase 5
+
+Procurement
+Purchase Requests
+Purchase Orders
+Material Receipts
+
+## Phase 6
+
+Subcontractors
+Measurements
+RA Bills
+Client Billing
+
+## Phase 7
+
+Quality
+Inspections
+Checklists
+NCR
+
+## Phase 8
+
+Safety
+Incidents
+Observations
+Corrective Actions
+
+## Phase 9
+
+Drawings
+Documents
+RFIs
+Meetings
+Issues
+
+## Phase 10
+
+Reports
+Risk
+Approvals
+Project Closeout
+Snagging
+Handover
+
+## Phase 11
+
+Mobile Site Experience
+Offline support
+Performance
+Accessibility
+Dark Mode
+
+---
+
+# 116. DEFINITION OF DONE
+
+The UI is complete when:
+
+* A company can create an organization.
+* Users can log in.
+* Users see only authorized projects.
+* A project can be created.
+* Contract information can be maintained.
+* BOQ can be imported and managed.
+* Budget can be tracked.
+* Schedule can be created.
+* Gantt can be viewed.
+* Site progress can be recorded.
+* Daily reports can be submitted.
+* Photos can be attached.
+* Manpower can be tracked.
+* Equipment can be tracked.
+* Materials can be tracked.
+* Material requests can be created.
+* Procurement can be managed.
+* Subcontractors can be managed.
+* Measurements can be recorded.
+* Bills can be prepared.
+* Quality inspections can be performed.
+* NCRs can be managed.
+* Safety incidents can be recorded.
+* RFIs can be managed.
+* Drawings can be versioned.
+* Documents can be managed.
+* Meetings and action items can be tracked.
+* Issues can be managed.
+* Project risks can be tracked.
+* Reports can be generated.
+* Approvals can be managed.
+* Snags can be tracked.
+* Handover can be completed.
+* Audit history is available.
+* All major workflows are permission-aware.
+* The system works on desktop, tablet and mobile.
+* The architecture supports future ERP modules.
+
+---
+
+# 117. MOST IMPORTANT UX RULE
+
+Do not make users navigate through the entire ERP to complete a construction workflow.
+
+For example:
+
+A Site Engineer looking at a project should be able to:
+
+```text
+Project
+ ↓
++ Add
+ ↓
+Daily Report
+Progress
+Material Request
+RFI
+Inspection
+Issue
+Safety Observation
+Photo
+```
+
+A Project Manager should be able to:
+
+```text
+Project
+ ↓
+Command Center
+ ↓
+See problem
+ ↓
+Click problem
+ ↓
+Take action
+```
+
+A management user should be able to:
+
+```text
+Portfolio
+ ↓
+Delayed Projects
+ ↓
+Project
+ ↓
+Problem
+ ↓
+Root Cause
+```
+
+The application should always move the user **from information → context → action** with as few clicks as possible.
