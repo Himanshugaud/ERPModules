@@ -200,6 +200,30 @@ tbody tr.clickable:hover { background: #f5f7fa; }
 .btn-sm { padding: 5px 10px; font-size: 12px; border-radius: 6px; }
 .row-actions { display: flex; gap: 6px; }
 
+/* Destructive button */
+.btn.danger { background: var(--red-soft, #fdecec); color: var(--red, #d13b3b); border-color: transparent; }
+.btn.danger:hover { background: #f9dede; }
+
+/* Permission / tag chips */
+.chip { display: inline-block; padding: 4px 9px; font-size: 12px; border-radius: 999px; background: var(--surface-2, #f2f4f7); color: var(--text-subtle, #5b6472); border: 1px solid var(--border); }
+
+/* Project list filter bar */
+.filter-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 12px 0; }
+.filter-bar select { border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px; font-size: 13px; background: var(--surface); color: var(--text); }
+.filter-date { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-subtle, #5b6472); }
+.filter-date input { border: 1px solid var(--border); border-radius: 8px; padding: 6px 8px; font-size: 13px; background: var(--surface); color: var(--text); }
+
+.chips-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
+.chip.removable { cursor: pointer; user-select: none; }
+.chip.removable:hover { background: #e7ebf1; }
+.chip-x { font-weight: 700; margin-left: 2px; }
+
+th.sortable { cursor: pointer; user-select: none; }
+th.sortable:hover { color: var(--text); }
+
+.page-size { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-subtle, #5b6472); }
+.page-size select { border: 1px solid var(--border); border-radius: 6px; padding: 4px 6px; font-size: 12px; background: var(--surface); color: var(--text); }
+
 
 @media (max-width: 900px) {
   .kpis { grid-template-columns: repeat(2, 1fr); }

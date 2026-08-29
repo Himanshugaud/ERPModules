@@ -41,6 +41,13 @@ public sealed class ProjectRepository : IProjectRepository
             "name" => query.OrderBy(p => p.Name),
             "-name" => query.OrderByDescending(p => p.Name),
             "code" => query.OrderBy(p => p.Code),
+            "-code" => query.OrderByDescending(p => p.Code),
+            "progress" => query.OrderBy(p => p.CompletionPercentage),
+            "-progress" => query.OrderByDescending(p => p.CompletionPercentage),
+            "duedate" => query.OrderBy(p => p.PlannedEndDate),
+            "-duedate" => query.OrderByDescending(p => p.PlannedEndDate),
+            "status" => query.OrderBy(p => _db.ProjectStatuses.Where(s => s.Id == p.StatusId).Select(s => s.DisplayOrder).FirstOrDefault()),
+            "-status" => query.OrderByDescending(p => _db.ProjectStatuses.Where(s => s.Id == p.StatusId).Select(s => s.DisplayOrder).FirstOrDefault()),
             "-createdat" => query.OrderByDescending(p => p.CreatedAt),
             _ => query.OrderByDescending(p => p.CreatedAt)
         };
@@ -75,6 +82,18 @@ public sealed class ClientRepository : IClientRepository
     public async Task<IReadOnlyList<Client>> ListAsync(Guid organizationId, CancellationToken ct = default) =>
         await _db.Clients.AsNoTracking().Where(c => c.OrganizationId == organizationId)
             .OrderBy(c => c.Name).ToListAsync(ct);
+
+    public Task<Client?> GetAsync(Guid organizationId, Guid clientId, bool track, CancellationToken ct = default)
+    {
+        var query = track ? _db.Clients : _db.Clients.AsNoTracking();
+        return query.FirstOrDefaultAsync(c => c.OrganizationId == organizationId && c.Id == clientId, ct);
+    }
+
+    public Task<bool> CodeExistsAsync(Guid organizationId, string code, Guid? excludeId, CancellationToken ct = default) =>
+        _db.Clients.AnyAsync(c => c.OrganizationId == organizationId && c.Code == code && (excludeId == null || c.Id != excludeId), ct);
+
+    public async Task AddAsync(Client client, CancellationToken ct = default) =>
+        await _db.Clients.AddAsync(client, ct);
 }
 
 public sealed class OrganizationRepository : IOrganizationRepository

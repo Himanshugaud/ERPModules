@@ -12,6 +12,9 @@ namespace ERP.Api.Functions;
 
 public sealed class UsersFunctions
 {
+    // Roles allowed to add/edit employees (org-specific, prototype).
+    private static readonly string[] EmployeeManagers = { "CEO", "HR Manager" };
+
     private readonly IUserService _service;
     private readonly IAuthorizationGuard _auth;
     private readonly IValidator<CreateUserRequest> _createValidator;
@@ -30,7 +33,8 @@ public sealed class UsersFunctions
     public async Task<IActionResult> List(
         [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "v1/users")] HttpRequest req, CancellationToken ct)
     {
-        _auth.RequireAnyRole(SystemRoles.Administrative);
+        // Prototype: any authenticated org member may view employees (tenant-scoped).
+        _auth.RequireAuthenticated();
         var filter = new UserFilter
         {
             Page = Http.IntQuery(req, "page") ?? 1,
@@ -46,7 +50,7 @@ public sealed class UsersFunctions
     public async Task<IActionResult> Create(
         [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "v1/users")] HttpRequest req, CancellationToken ct)
     {
-        _auth.RequireAnyRole(SystemRoles.Administrative);
+        _auth.RequireAnyRole(EmployeeManagers);
         var body = await Http.ReadValidatedAsync(req, _createValidator, ct);
         return Http.Created(await _service.CreateAsync(body, ct));
     }
@@ -56,7 +60,7 @@ public sealed class UsersFunctions
         [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "v1/users/{userId:guid}")] HttpRequest req,
         Guid userId, CancellationToken ct)
     {
-        _auth.RequireAnyRole(SystemRoles.Administrative);
+        _auth.RequireAuthenticated();
         return Http.Ok(await _service.GetAsync(userId, ct));
     }
 
@@ -65,7 +69,7 @@ public sealed class UsersFunctions
         [HttpTrigger(AuthorizationLevel.Anonymous, "put", Route = "v1/users/{userId:guid}")] HttpRequest req,
         Guid userId, CancellationToken ct)
     {
-        _auth.RequireAnyRole(SystemRoles.Administrative);
+        _auth.RequireAnyRole(EmployeeManagers);
         var body = await Http.ReadValidatedAsync(req, _updateValidator, ct);
         return Http.Ok(await _service.UpdateAsync(userId, body, ct));
     }

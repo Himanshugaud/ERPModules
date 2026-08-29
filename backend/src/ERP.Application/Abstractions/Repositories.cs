@@ -26,12 +26,21 @@ public interface IClientRepository
 {
     Task<bool> ExistsAsync(Guid organizationId, Guid clientId, CancellationToken ct = default);
     Task<IReadOnlyList<Client>> ListAsync(Guid organizationId, CancellationToken ct = default);
+    Task<Client?> GetAsync(Guid organizationId, Guid clientId, bool track, CancellationToken ct = default);
+    Task<bool> CodeExistsAsync(Guid organizationId, string code, Guid? excludeId, CancellationToken ct = default);
+    Task AddAsync(Client client, CancellationToken ct = default);
 }
 
 public interface IOrganizationRepository
 {
     Task<Organization?> GetByCodeAsync(string code, CancellationToken ct = default);
     Task<Organization?> GetAsync(Guid id, CancellationToken ct = default);
+}
+
+public interface IDepartmentRepository
+{
+    Task<IReadOnlyList<Department>> ListAsync(Guid organizationId, CancellationToken ct = default);
+    Task<bool> ExistsAsync(Guid organizationId, Guid departmentId, CancellationToken ct = default);
 }
 
 public interface IUserRepository

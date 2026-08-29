@@ -7,6 +7,7 @@ public interface IAuthorizationGuard
 {
     void Require(string permission);
     void RequireAnyRole(params string[] roles);
+    void RequireAuthenticated();
 }
 
 public sealed class AuthorizationGuard : IAuthorizationGuard
@@ -20,6 +21,12 @@ public sealed class AuthorizationGuard : IAuthorizationGuard
             throw new UnauthorizedException();
         if (!_user.HasPermission(permission))
             throw new ForbiddenException($"Missing required permission: {permission}");
+    }
+
+    public void RequireAuthenticated()
+    {
+        if (!_user.IsAuthenticated)
+            throw new UnauthorizedException();
     }
 
     public void RequireAnyRole(params string[] roles)

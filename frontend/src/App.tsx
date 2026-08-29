@@ -6,6 +6,10 @@ import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import Projects from "./pages/Projects";
 import ProjectDetail from "./pages/ProjectDetail";
+import Requirements from "./pages/Requirements";
+import Clients from "./pages/Clients";
+import Employees from "./pages/Employees";
+import Profile from "./pages/Profile";
 import Placeholder from "./pages/Placeholder";
 
 export default function App() {
@@ -26,6 +30,10 @@ export default function App() {
             <Route path="dashboard" element={<Dashboard />} />
             <Route path="projects" element={<Projects />} />
             <Route path="projects/:projectId" element={<ProjectDetail />} />
+            <Route path="requirements" element={<Requirements />} />
+            <Route path="clients" element={<Clients />} />
+            <Route path="employees" element={<Employees />} />
+            <Route path="profile" element={<Profile />} />
             <Route path="core" element={<Placeholder title="Core" />} />
             <Route path="settings" element={<Placeholder title="Settings" />} />
           </Route>

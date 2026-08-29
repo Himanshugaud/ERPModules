@@ -6,6 +6,20 @@ using Microsoft.EntityFrameworkCore;
 
 namespace ERP.Infrastructure.Repositories;
 
+public sealed class DepartmentRepository : IDepartmentRepository
+{
+    private readonly ErpDbContext _db;
+    public DepartmentRepository(ErpDbContext db) => _db = db;
+
+    public async Task<IReadOnlyList<Department>> ListAsync(Guid organizationId, CancellationToken ct = default) =>
+        await _db.Departments.AsNoTracking()
+            .Where(d => d.OrganizationId == organizationId && d.IsActive)
+            .OrderBy(d => d.Name).ToListAsync(ct);
+
+    public Task<bool> ExistsAsync(Guid organizationId, Guid departmentId, CancellationToken ct = default) =>
+        _db.Departments.AnyAsync(d => d.OrganizationId == organizationId && d.Id == departmentId, ct);
+}
+
 public sealed class UserRepository : IUserRepository
 {
     private readonly ErpDbContext _db;

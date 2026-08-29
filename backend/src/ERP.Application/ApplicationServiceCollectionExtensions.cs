@@ -1,3 +1,4 @@
+using ERP.Application.Clients;
 using ERP.Application.Identity;
 using ERP.Application.Projects;
 using ERP.Application.Tasks;
@@ -17,6 +18,7 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<IAuthService, AuthService>();
         services.AddScoped<IUserService, UserService>();
         services.AddScoped<IRoleService, RoleService>();
+        services.AddScoped<IClientService, ClientService>();
         return services;
     }
 }

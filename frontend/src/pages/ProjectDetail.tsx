@@ -1,26 +1,41 @@
 import { Fragment, useEffect, useState, type FormEvent } from "react";
-import { Link, useParams } from "react-router-dom";
-import { api, ApiError, type Project, type Task, type Lookup, type UserItem } from "../api/client";
+import { Link, useNavigate, useParams } from "react-router-dom";
+import { api, ApiError, type Project, type Task, type Lookup, type UserItem, type Client } from "../api/client";
+import { useAuth } from "../auth/AuthContext";
 import { statusBadge, formatDate, initials } from "../lib/ui";
 
 type ModalMode = "create" | "edit" | "subtask";
 
 export default function ProjectDetail() {
   const { projectId = "" } = useParams();
+  const navigate = useNavigate();
+  const { user } = useAuth();
   const [project, setProject] = useState<Project | null>(null);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [projectStatuses, setProjectStatuses] = useState<Lookup[]>([]);
+  const [projectPriorities, setProjectPriorities] = useState<Lookup[]>([]);
   const [taskStatuses, setTaskStatuses] = useState<Lookup[]>([]);
   const [taskPriorities, setTaskPriorities] = useState<Lookup[]>([]);
-  const [clients, setClients] = useState<Lookup[]>([]);
+  const [clients, setClients] = useState<Client[]>([]);
   const [users, setUsers] = useState<UserItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [modal, setModal] = useState<{ mode: ModalMode; task?: Task; parentId?: string } | null>(null);
+  const [showEdit, setShowEdit] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  const perms = user?.permissions ?? [];
+  const canEdit = perms.includes("project.update");
+  const canDelete = perms.includes("project.delete");
 
   async function reloadTasks() {
     const page = await api.projectTasks(projectId);
     setTasks(page.data);
+  }
+
+  async function reloadProject() {
+    const proj = await api.project(projectId);
+    setProject(proj);
   }
 
   useEffect(() => {
@@ -28,10 +43,11 @@ export default function ProjectDetail() {
       setLoading(true);
       setError(null);
       try {
-        const [proj, taskPage, ps, ts, tp, cl] = await Promise.all([
+        const [proj, taskPage, ps, pp, ts, tp, cl] = await Promise.all([
           api.project(projectId),
           api.projectTasks(projectId),
           api.projectStatuses().catch(() => []),
+          api.projectPriorities().catch(() => []),
           api.taskStatuses().catch(() => []),
           api.taskPriorities().catch(() => []),
           api.clients().catch(() => [])
@@ -39,6 +55,7 @@ export default function ProjectDetail() {
         setProject(proj);
         setTasks(taskPage.data);
         setProjectStatuses(ps);
+        setProjectPriorities(pp);
         setTaskStatuses(ts);
         setTaskPriorities(tp);
         setClients(cl);
@@ -50,6 +67,19 @@ export default function ProjectDetail() {
       }
     })();
   }, [projectId]);
+
+  async function onDelete() {
+    if (!project) return;
+    if (!confirm(`Delete project "${project.name}"? This cannot be undone.`)) return;
+    setDeleting(true);
+    try {
+      await api.deleteProject(project.id);
+      navigate("/projects");
+    } catch (err) {
+      alert(err instanceof ApiError ? err.message : "Unable to delete project.");
+      setDeleting(false);
+    }
+  }
 
   const psMap = Object.fromEntries(projectStatuses.map((s) => [s.id, s]));
   const tpMap = Object.fromEntries(taskPriorities.map((p) => [p.id, p]));
@@ -136,7 +166,11 @@ export default function ProjectDetail() {
               <h1 className="page-title" style={{ fontSize: 22 }}>{project.name}</h1>
               <div className="cell-code" style={{ fontSize: 13 }}>{project.code}</div>
             </div>
-            <span className={`badge ${pb.cls}`}><span className="dot" />{pb.label}</span>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <span className={`badge ${pb.cls}`}><span className="dot" />{pb.label}</span>
+              {canEdit && <button className="btn btn-sm" onClick={() => setShowEdit(true)}>Edit</button>}
+              {canDelete && <button className="btn btn-sm danger" disabled={deleting} onClick={onDelete}>{deleting ? "Deleting…" : "Delete"}</button>}
+            </div>
           </div>
 
           <div className="progress" style={{ maxWidth: 320, marginTop: 14 }}>
@@ -199,6 +233,18 @@ export default function ProjectDetail() {
           users={users}
           onClose={() => setModal(null)}
           onSaved={async () => { setModal(null); await reloadTasks(); }}
+        />
+      )}
+
+      {showEdit && project && (
+        <ProjectEditModal
+          project={project}
+          statuses={projectStatuses}
+          priorities={projectPriorities}
+          clients={clients}
+          users={users}
+          onClose={() => setShowEdit(false)}
+          onSaved={async () => { setShowEdit(false); await reloadProject(); }}
         />
       )}
     </>
@@ -343,6 +389,139 @@ function TaskModal(props: {
         <div className="modal-foot">
           <button type="button" className="btn" onClick={props.onClose}>Cancel</button>
           <button className="btn primary" disabled={saving}>{saving ? <span className="spinner" /> : editing ? "Save Changes" : "Create Task"}</button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function ProjectEditModal(props: {
+  project: Project;
+  statuses: Lookup[];
+  priorities: Lookup[];
+  clients: Client[];
+  users: UserItem[];
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const p = props.project;
+  const [form, setForm] = useState<Record<string, string>>({
+    name: p.name ?? "",
+    description: p.description ?? "",
+    clientId: p.clientId ?? "",
+    managerId: p.managerId ?? "",
+    statusId: p.statusId ?? "",
+    priorityId: p.priorityId ?? "",
+    startDate: p.startDate?.slice(0, 10) ?? "",
+    plannedEndDate: p.plannedEndDate?.slice(0, 10) ?? "",
+    completionPercentage: p.completionPercentage != null ? String(p.completionPercentage) : "",
+    budget: p.budget != null ? String(p.budget) : "",
+    currencyCode: p.currencyCode ?? "INR"
+  });
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const set = (k: string, v: string) => setForm((f) => ({ ...f, [k]: v }));
+
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setSaving(true);
+    try {
+      await api.updateProject(p.id, {
+        name: form.name.trim(),
+        description: form.description || undefined,
+        clientId: form.clientId || undefined,
+        managerId: form.managerId || undefined,
+        statusId: form.statusId || undefined,
+        priorityId: form.priorityId || undefined,
+        startDate: form.startDate || undefined,
+        plannedEndDate: form.plannedEndDate || undefined,
+        completionPercentage: form.completionPercentage ? Number(form.completionPercentage) : undefined,
+        budget: form.budget ? Number(form.budget) : undefined,
+        currencyCode: form.currencyCode || undefined,
+        rowVersion: p.rowVersion
+      });
+      props.onSaved();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Unable to update project.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="modal-overlay" onClick={props.onClose}>
+      <form className="modal" onClick={(e) => e.stopPropagation()} onSubmit={submit}>
+        <div className="modal-head">
+          <h3>Edit Project</h3>
+          <button type="button" className="icon-btn" onClick={props.onClose}>✕</button>
+        </div>
+        <div className="modal-body">
+          {error && <div className="form-error">{error}</div>}
+          <div className="field">
+            <label>Project Name *</label>
+            <input value={form.name} onChange={(e) => set("name", e.target.value)} required />
+          </div>
+          <div className="field">
+            <label>Description</label>
+            <textarea rows={2} value={form.description} onChange={(e) => set("description", e.target.value)} />
+          </div>
+          <div className="row2">
+            <div className="field">
+              <label>Client</label>
+              <select value={form.clientId} onChange={(e) => set("clientId", e.target.value)}>
+                <option value="">—</option>
+                {props.clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            </div>
+            <div className="field">
+              <label>Project Manager</label>
+              <select value={form.managerId} onChange={(e) => set("managerId", e.target.value)}>
+                <option value="">—</option>
+                {props.users.map((u) => <option key={u.id} value={u.id}>{u.displayName ?? u.email}</option>)}
+              </select>
+            </div>
+          </div>
+          <div className="row2">
+            <div className="field">
+              <label>Status</label>
+              <select value={form.statusId} onChange={(e) => set("statusId", e.target.value)}>
+                <option value="">—</option>
+                {props.statuses.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+            </div>
+            <div className="field">
+              <label>Priority</label>
+              <select value={form.priorityId} onChange={(e) => set("priorityId", e.target.value)}>
+                <option value="">—</option>
+                {props.priorities.map((pr) => <option key={pr.id} value={pr.id}>{pr.name}</option>)}
+              </select>
+            </div>
+          </div>
+          <div className="row2">
+            <div className="field">
+              <label>Start Date</label>
+              <input type="date" value={form.startDate} onChange={(e) => set("startDate", e.target.value)} />
+            </div>
+            <div className="field">
+              <label>Planned Completion</label>
+              <input type="date" value={form.plannedEndDate} onChange={(e) => set("plannedEndDate", e.target.value)} />
+            </div>
+          </div>
+          <div className="row2">
+            <div className="field">
+              <label>Completion %</label>
+              <input type="number" min={0} max={100} value={form.completionPercentage} onChange={(e) => set("completionPercentage", e.target.value)} />
+            </div>
+            <div className="field">
+              <label>Budget</label>
+              <input type="number" value={form.budget} onChange={(e) => set("budget", e.target.value)} />
+            </div>
+          </div>
+        </div>
+        <div className="modal-foot">
+          <button type="button" className="btn" onClick={props.onClose}>Cancel</button>
+          <button className="btn primary" disabled={saving}>{saving ? <span className="spinner" /> : "Save Changes"}</button>
         </div>
       </form>
     </div>

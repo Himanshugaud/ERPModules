@@ -13,6 +13,7 @@ public sealed class LookupsFunctions
     private readonly IProjectStatusRepository _statuses;
     private readonly IProjectPriorityRepository _priorities;
     private readonly IClientRepository _clients;
+    private readonly IDepartmentRepository _departments;
     private readonly ITenantContext _tenant;
     private readonly IAuthorizationGuard _auth;
 
@@ -20,12 +21,14 @@ public sealed class LookupsFunctions
         IProjectStatusRepository statuses,
         IProjectPriorityRepository priorities,
         IClientRepository clients,
+        IDepartmentRepository departments,
         ITenantContext tenant,
         IAuthorizationGuard auth)
     {
         _statuses = statuses;
         _priorities = priorities;
         _clients = clients;
+        _departments = departments;
         _tenant = tenant;
         _auth = auth;
     }
@@ -50,14 +53,14 @@ public sealed class LookupsFunctions
         return Http.Ok(items.Select(p => new { p.Id, p.Code, p.Name, p.DisplayOrder, p.IsActive }));
     }
 
-    [Function("ListClients")]
-    public async Task<IActionResult> Clients(
-        [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "v1/clients")] HttpRequest req,
+    [Function("ListDepartments")]
+    public async Task<IActionResult> Departments(
+        [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "v1/departments")] HttpRequest req,
         CancellationToken ct)
     {
-        _auth.Require(Permissions.ProjectRead);
-        var items = await _clients.ListAsync(_tenant.OrganizationId, ct);
-        return Http.Ok(items.Select(c => new { c.Id, c.Code, c.Name, c.Email, c.Phone, c.Status }));
+        _auth.RequireAuthenticated();
+        var items = await _departments.ListAsync(_tenant.OrganizationId, ct);
+        return Http.Ok(items.Select(d => new { d.Id, d.Code, d.Name }));
     }
 }
 

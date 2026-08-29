@@ -1,28 +1,62 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { useNavigate } from "react-router-dom";
-import { api, ApiError, type Project, type Lookup, type UserItem } from "../api/client";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import { api, ApiError, type Project, type Lookup, type UserItem, type Client } from "../api/client";
 import { statusBadge, formatDate, initials } from "../lib/ui";
 
-const PAGE_SIZE = 8;
+const PAGE_SIZES = [8, 25, 50];
+const SORT_OPTIONS = [
+  { value: "", label: "Newest" },
+  { value: "name", label: "Name A–Z" },
+  { value: "-name", label: "Name Z–A" },
+  { value: "status", label: "Status" },
+  { value: "progress", label: "Progress ↑" },
+  { value: "-progress", label: "Progress ↓" },
+  { value: "duedate", label: "Due date ↑" },
+  { value: "-duedate", label: "Due date ↓" },
+  { value: "code", label: "Code A–Z" }
+];
 
 export default function Projects() {
   const navigate = useNavigate();
+  const [params, setParams] = useSearchParams();
+
+  const q = params.get("q") ?? "";
+  const statusId = params.get("statusId") ?? "";
+  const priorityId = params.get("priorityId") ?? "";
+  const clientId = params.get("clientId") ?? "";
+  const managerId = params.get("managerId") ?? "";
+  const startFrom = params.get("startFrom") ?? "";
+  const startTo = params.get("startTo") ?? "";
+  const sort = params.get("sort") ?? "";
+  const page = Math.max(1, Number(params.get("page") ?? "1") || 1);
+  const pageSize = PAGE_SIZES.includes(Number(params.get("pageSize"))) ? Number(params.get("pageSize")) : PAGE_SIZES[0];
+
   const [projects, setProjects] = useState<Project[]>([]);
   const [total, setTotal] = useState(0);
-  const [page, setPage] = useState(1);
-  const [search, setSearch] = useState("");
-  const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
+  const [searchInput, setSearchInput] = useState(q);
 
   const [statuses, setStatuses] = useState<Lookup[]>([]);
   const [priorities, setPriorities] = useState<Lookup[]>([]);
-  const [clients, setClients] = useState<Lookup[]>([]);
+  const [clients, setClients] = useState<Client[]>([]);
   const [users, setUsers] = useState<UserItem[]>([]);
 
   const statusMap = Object.fromEntries(statuses.map((s) => [s.id, s]));
+  const priorityMap = Object.fromEntries(priorities.map((p) => [p.id, p]));
   const clientMap = Object.fromEntries(clients.map((c) => [c.id, c]));
   const userMap = Object.fromEntries(users.map((u) => [u.id, u]));
+
+  // Update query-string filters. resetPage returns to page 1 unless page is set explicitly.
+  function setFilters(next: Record<string, string | number | undefined>, resetPage = true) {
+    const p = new URLSearchParams(params);
+    Object.entries(next).forEach(([k, v]) => {
+      if (v === undefined || v === "") p.delete(k);
+      else p.set(k, String(v));
+    });
+    if (resetPage && !("page" in next)) p.set("page", "1");
+    setParams(p);
+  }
 
   async function loadRefData() {
     const [st, pr, cl] = await Promise.all([
@@ -33,14 +67,18 @@ export default function Projects() {
     setStatuses(st);
     setPriorities(pr);
     setClients(cl);
-    // Users require admin role; ignore failures.
+    // Users require elevated access; ignore failures.
     api.users().then((u) => setUsers(u)).catch(() => setUsers([]));
   }
 
   async function loadProjects() {
     setLoading(true);
     try {
-      const res = await api.projects({ page, pageSize: PAGE_SIZE, search: query });
+      const res = await api.projects({
+        page, pageSize, search: q, sort,
+        statusId, priorityId, clientId, managerId,
+        startDateFrom: startFrom, startDateTo: startTo
+      });
       setProjects(res.data);
       setTotal(res.pagination.totalItems);
     } finally {
@@ -49,17 +87,41 @@ export default function Projects() {
   }
 
   useEffect(() => { loadRefData(); }, []);
-  useEffect(() => { loadProjects(); }, [page, query]);
+  useEffect(() => { setSearchInput(q); }, [q]);
+  useEffect(() => { loadProjects(); }, [q, statusId, priorityId, clientId, managerId, startFrom, startTo, sort, page, pageSize]);
 
   function submitSearch(e: FormEvent) {
     e.preventDefault();
-    setPage(1);
-    setQuery(search.trim());
+    setFilters({ q: searchInput.trim() });
   }
 
-  const from = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
-  const to = Math.min(page * PAGE_SIZE, total);
-  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  // Toggle a column's sort between ascending (key) and descending (-key).
+  function toggleSort(key: string) {
+    setFilters({ sort: sort === key ? `-${key}` : key });
+  }
+  function sortArrow(key: string) {
+    return sort === key ? " ▲" : sort === `-${key}` ? " ▼" : "";
+  }
+
+  const activeChips: { key: string; label: string }[] = [];
+  if (q) activeChips.push({ key: "q", label: `Search: “${q}”` });
+  if (statusId) activeChips.push({ key: "statusId", label: `Status: ${statusMap[statusId]?.name ?? "—"}` });
+  if (priorityId) activeChips.push({ key: "priorityId", label: `Priority: ${priorityMap[priorityId]?.name ?? "—"}` });
+  if (clientId) activeChips.push({ key: "clientId", label: `Client: ${clientMap[clientId]?.name ?? "—"}` });
+  if (managerId) activeChips.push({ key: "managerId", label: `Manager: ${userMap[managerId]?.displayName ?? userMap[managerId]?.email ?? "—"}` });
+  if (startFrom) activeChips.push({ key: "startFrom", label: `Start ≥ ${formatDate(startFrom)}` });
+  if (startTo) activeChips.push({ key: "startTo", label: `Start ≤ ${formatDate(startTo)}` });
+
+  function clearAll() {
+    const p = new URLSearchParams();
+    if (pageSize !== PAGE_SIZES[0]) p.set("pageSize", String(pageSize));
+    setParams(p);
+    setSearchInput("");
+  }
+
+  const from = total === 0 ? 0 : (page - 1) * pageSize + 1;
+  const to = Math.min(page * pageSize, total);
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
   return (
     <>
@@ -71,22 +133,57 @@ export default function Projects() {
         <div className="head-actions">
           <form className="search" onSubmit={submitSearch}>
             <span>⌕</span>
-            <input placeholder="Search projects…" value={search} onChange={(e) => setSearch(e.target.value)} />
+            <input placeholder="Search by name or code…" value={searchInput} onChange={(e) => setSearchInput(e.target.value)} />
           </form>
           <button className="btn primary" onClick={() => setShowCreate(true)}>+ Create Project</button>
         </div>
       </div>
 
+      <div className="filter-bar">
+        <select value={statusId} onChange={(e) => setFilters({ statusId: e.target.value })}>
+          <option value="">All Statuses</option>
+          {statuses.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+        </select>
+        <select value={priorityId} onChange={(e) => setFilters({ priorityId: e.target.value })}>
+          <option value="">All Priorities</option>
+          {priorities.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+        </select>
+        <select value={clientId} onChange={(e) => setFilters({ clientId: e.target.value })}>
+          <option value="">All Clients</option>
+          {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+        </select>
+        <select value={managerId} onChange={(e) => setFilters({ managerId: e.target.value })}>
+          <option value="">All Managers</option>
+          {users.map((u) => <option key={u.id} value={u.id}>{u.displayName ?? u.email}</option>)}
+        </select>
+        <label className="filter-date">Start ≥ <input type="date" value={startFrom} onChange={(e) => setFilters({ startFrom: e.target.value })} /></label>
+        <label className="filter-date">Start ≤ <input type="date" value={startTo} onChange={(e) => setFilters({ startTo: e.target.value })} /></label>
+        <select value={sort} onChange={(e) => setFilters({ sort: e.target.value })}>
+          {SORT_OPTIONS.map((o) => <option key={o.value} value={o.value}>Sort: {o.label}</option>)}
+        </select>
+      </div>
+
+      {activeChips.length > 0 && (
+        <div className="chips-row">
+          {activeChips.map((c) => (
+            <span key={c.key} className="chip removable" onClick={() => setFilters({ [c.key]: "" })}>
+              {c.label} <span className="chip-x">×</span>
+            </span>
+          ))}
+          <button className="btn btn-sm" onClick={clearAll}>Clear all</button>
+        </div>
+      )}
+
       <div className="table-wrap">
         <table>
           <thead>
             <tr>
-              <th>Project Name</th>
+              <th className="sortable" onClick={() => toggleSort("name")}>Project Name{sortArrow("name")}</th>
               <th>Client</th>
               <th>Manager</th>
-              <th>Status</th>
-              <th>Progress</th>
-              <th>Due Date</th>
+              <th className="sortable" onClick={() => toggleSort("status")}>Status{sortArrow("status")}</th>
+              <th className="sortable" onClick={() => toggleSort("progress")}>Progress{sortArrow("progress")}</th>
+              <th className="sortable" onClick={() => toggleSort("duedate")}>Due Date{sortArrow("duedate")}</th>
             </tr>
           </thead>
           <tbody>
@@ -99,7 +196,7 @@ export default function Projects() {
                 </tr>
               ))
             ) : projects.length === 0 ? (
-              <tr><td colSpan={6}><div className="empty">No projects found. Create your first project.</div></td></tr>
+              <tr><td colSpan={6}><div className="empty">No projects match your filters.{activeChips.length > 0 ? " Try clearing some filters." : ""}</div></td></tr>
             ) : (
               projects.map((p) => {
                 const b = statusBadge(statusMap[p.statusId ?? ""]?.code);
@@ -136,10 +233,18 @@ export default function Projects() {
           </tbody>
         </table>
         <div className="table-foot">
-          <span>Showing {from} to {to} of {total} projects</span>
-          <div style={{ display: "flex", gap: 8 }}>
-            <button className="btn" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>‹</button>
-            <button className="btn" disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)}>›</button>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <span>Showing {from}–{to} of {total} projects</span>
+            <label className="page-size">Rows:
+              <select value={pageSize} onChange={(e) => setFilters({ pageSize: e.target.value })}>
+                {PAGE_SIZES.map((n) => <option key={n} value={n}>{n}</option>)}
+              </select>
+            </label>
+          </div>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <button className="btn" disabled={page <= 1} onClick={() => setFilters({ page: page - 1 }, false)}>‹</button>
+            <span className="muted">Page {page} of {totalPages}</span>
+            <button className="btn" disabled={page >= totalPages} onClick={() => setFilters({ page: page + 1 }, false)}>›</button>
           </div>
         </div>
       </div>
@@ -153,7 +258,7 @@ export default function Projects() {
           onClose={() => setShowCreate(false)}
           onCreated={() => {
             setShowCreate(false);
-            setPage(1);
+            setFilters({ page: 1 }, false);
             loadProjects();
           }}
         />

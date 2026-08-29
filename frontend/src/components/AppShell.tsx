@@ -4,7 +4,12 @@ import { initials } from "../lib/ui";
 
 const navMain = [
   { to: "/dashboard", label: "Dashboard", ico: "▦" },
-  { to: "/projects", label: "Projects", ico: "▤" }
+  { to: "/projects", label: "Projects", ico: "▤" },
+  { to: "/requirements", label: "Requirements", ico: "▣" }
+];
+const navManage = [
+  { to: "/clients", label: "Clients", ico: "◑" },
+  { to: "/employees", label: "Employees", ico: "☺" }
 ];
 const navCore = [
   { to: "/core", label: "Core", ico: "◈" },
@@ -38,6 +43,13 @@ export default function AppShell() {
               {n.label}
             </NavLink>
           ))}
+          <div className="nav-label">Management</div>
+          {navManage.map((n) => (
+            <NavLink key={n.to} to={n.to} className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`}>
+              <span className="ico">{n.ico}</span>
+              {n.label}
+            </NavLink>
+          ))}
           <div className="nav-label">Core</div>
           {navCore.map((n) => (
             <NavLink key={n.to} to={n.to} className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`}>
@@ -62,9 +74,10 @@ export default function AppShell() {
             <input placeholder="Search..." />
           </div>
           <div className="icon-btn">🔔</div>
-          <div className="avatar" title={user?.email ?? ""} onClick={onLogout}>
+          <div className="avatar" title={user?.email ?? "View profile"} onClick={() => navigate("/profile")} style={{ cursor: "pointer" }}>
             {initials(user?.displayName ?? user?.email)}
           </div>
+          <button className="btn btn-sm" onClick={onLogout} title="Sign out" style={{ marginLeft: 4 }}>Sign out</button>
         </header>
         <div className="content">
           <Outlet />

@@ -117,6 +117,24 @@ export interface UserItem {
   id: string;
   displayName?: string;
   email: string;
+  firstName?: string;
+  lastName?: string;
+  phone?: string;
+  jobTitle?: string;
+  departmentId?: string;
+  status?: string;
+  createdAt?: string;
+}
+
+export interface Client {
+  id: string;
+  code: string;
+  name: string;
+  email?: string;
+  phone?: string;
+  status?: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 // ---- Endpoints ----
@@ -138,6 +156,15 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload)
     }).then((r) => r.data),
+
+  updateProject: (id: string, payload: Record<string, unknown>) =>
+    request<{ data: Project }>(`/projects/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(payload)
+    }).then((r) => r.data),
+
+  deleteProject: (id: string) =>
+    request<void>(`/projects/${id}`, { method: "DELETE" }),
 
   project: (id: string) => request<{ data: Project }>(`/projects/${id}`).then((r) => r.data),
 
@@ -163,6 +190,18 @@ export const api = {
   projectPriorities: () => request<{ data: Lookup[] }>("/project-priorities").then((r) => r.data),
   taskStatuses: () => request<{ data: Lookup[] }>("/task-statuses").then((r) => r.data),
   taskPriorities: () => request<{ data: Lookup[] }>("/task-priorities").then((r) => r.data),
-  clients: () => request<{ data: Lookup[] }>("/clients").then((r) => r.data),
-  users: () => request<Paged<UserItem>>("/users?pageSize=100").then((r) => r.data)
+  departments: () => request<{ data: Lookup[] }>("/departments").then((r) => r.data),
+  clients: () => request<{ data: Client[] }>("/clients").then((r) => r.data),
+  client: (id: string) => request<{ data: Client }>(`/clients/${id}`).then((r) => r.data),
+  createClient: (payload: Record<string, unknown>) =>
+    request<{ data: Client }>("/clients", { method: "POST", body: JSON.stringify(payload) }).then((r) => r.data),
+  updateClient: (id: string, payload: Record<string, unknown>) =>
+    request<{ data: Client }>(`/clients/${id}`, { method: "PUT", body: JSON.stringify(payload) }).then((r) => r.data),
+
+  users: () => request<Paged<UserItem>>("/users?pageSize=100").then((r) => r.data),
+  user: (id: string) => request<{ data: UserItem }>(`/users/${id}`).then((r) => r.data),
+  createUser: (payload: Record<string, unknown>) =>
+    request<{ data: UserItem }>("/users", { method: "POST", body: JSON.stringify(payload) }).then((r) => r.data),
+  updateUser: (id: string, payload: Record<string, unknown>) =>
+    request<{ data: UserItem }>(`/users/${id}`, { method: "PUT", body: JSON.stringify(payload) }).then((r) => r.data)
 };
