@@ -87,6 +87,7 @@ public sealed class CreateGoodsReceiptRequestValidator : AbstractValidator<Creat
     public CreateGoodsReceiptRequestValidator()
     {
         RuleFor(x => x.WarehouseId).NotEmpty();
+        RuleFor(x => x.PoReference).NotEmpty().MaximumLength(50).WithMessage("A purchase order reference is required for every goods receipt.");
         RuleFor(x => x.Lines).NotEmpty().WithMessage("At least one line is required.");
         RuleForEach(x => x.Lines).ChildRules(l =>
         {
@@ -118,6 +119,7 @@ public sealed class CreateStockTransferRequestValidator : AbstractValidator<Crea
         RuleFor(x => x.FromWarehouseId).NotEmpty();
         RuleFor(x => x.ToWarehouseId).NotEmpty()
             .NotEqual(x => x.FromWarehouseId).WithMessage("Source and destination warehouses must differ.");
+        RuleFor(x => x.TransportId).NotEmpty().MaximumLength(50).WithMessage("A transport ID is required for every stock transfer.");
         RuleFor(x => x.Lines).NotEmpty();
         RuleForEach(x => x.Lines).ChildRules(l =>
         {

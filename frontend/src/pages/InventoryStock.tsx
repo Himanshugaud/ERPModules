@@ -6,6 +6,7 @@ import { formatDate } from "../lib/ui";
 type Tab = "levels" | "low" | "movements";
 type TxnKind = "receive" | "issue" | "transfer" | "adjust";
 const money = (n: number) => n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const MOVE_TYPES = ["RECEIPT", "ISSUE", "TRANSFER_IN", "TRANSFER_OUT", "ADJUSTMENT", "PRODUCTION_IN", "CONSUMPTION", "RETURN_IN", "RETURN_OUT", "SCRAP", "OPENING_BALANCE"];
 
 export default function InventoryStock() {
   const { user } = useAuth();
@@ -18,6 +19,13 @@ export default function InventoryStock() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [txn, setTxn] = useState<TxnKind | null>(null);
+
+  // Filters
+  const [fItem, setFItem] = useState("");
+  const [fWarehouse, setFWarehouse] = useState("");
+  const [fType, setFType] = useState("");
+  const [fFrom, setFFrom] = useState("");
+  const [fTo, setFTo] = useState("");
 
   const itemMap = useMemo(() => new Map(items.map((i) => [i.id, i])), [items]);
   const whMap = useMemo(() => new Map(warehouses.map((w) => [w.id, w.name])), [warehouses]);
@@ -33,9 +41,19 @@ export default function InventoryStock() {
     setError(null);
     try {
       await loadRefs();
-      if (tab === "levels") setLevels((await api.stock({ pageSize: 200 })).data);
-      else if (tab === "low") setLevels((await api.lowStock({ pageSize: 200 })).data);
-      else setMovements((await api.stockMovements({ pageSize: 100 })).data);
+      if (tab === "levels")
+        setLevels((await api.stock({ pageSize: 200, itemId: fItem || undefined, warehouseId: fWarehouse || undefined })).data);
+      else if (tab === "low")
+        setLevels((await api.lowStock({ pageSize: 200, warehouseId: fWarehouse || undefined })).data);
+      else
+        setMovements((await api.stockMovements({
+          pageSize: 100,
+          itemId: fItem || undefined,
+          warehouseId: fWarehouse || undefined,
+          movementType: fType || undefined,
+          dateFrom: fFrom || undefined,
+          dateTo: fTo || undefined
+        })).data);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Unable to load stock.");
     } finally {
@@ -43,7 +61,12 @@ export default function InventoryStock() {
     }
   }
 
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [tab]);
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [tab, fItem, fWarehouse, fType, fFrom, fTo]);
+
+  function clearFilters() {
+    setFItem(""); setFWarehouse(""); setFType(""); setFFrom(""); setFTo("");
+  }
+  const hasFilters = fItem || fWarehouse || fType || fFrom || fTo;
 
   const totalValue = levels.reduce((s, l) => s + l.stockValue, 0);
   const lowCount = tab === "low" ? levels.length : levels.filter((l) => {
@@ -80,6 +103,30 @@ export default function InventoryStock() {
             </span>
           ))}
         </div>
+      </div>
+
+      <div className="filter-bar" style={{ marginBottom: 12 }}>
+        {tab !== "low" && (
+          <select value={fItem} onChange={(e) => setFItem(e.target.value)}>
+            <option value="">All items</option>
+            {items.map((it) => <option key={it.id} value={it.id}>{it.code} — {it.name}</option>)}
+          </select>
+        )}
+        <select value={fWarehouse} onChange={(e) => setFWarehouse(e.target.value)}>
+          <option value="">All warehouses</option>
+          {warehouses.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
+        </select>
+        {tab === "movements" && (
+          <>
+            <select value={fType} onChange={(e) => setFType(e.target.value)}>
+              <option value="">All types</option>
+              {MOVE_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+            </select>
+            <input className="filter-date" type="date" title="From date" value={fFrom} onChange={(e) => setFFrom(e.target.value)} />
+            <input className="filter-date" type="date" title="To date" value={fTo} onChange={(e) => setFTo(e.target.value)} />
+          </>
+        )}
+        {hasFilters && <button className="btn btn-sm" onClick={clearFilters}>Clear</button>}
       </div>
 
       {error && <div className="form-error" style={{ marginBottom: 12 }}>{error}</div>}
@@ -151,6 +198,8 @@ function TxnModal(props: { kind: TxnKind; items: InventoryItem[]; warehouses: Wa
   const [warehouseId, setWarehouseId] = useState(props.warehouses[0]?.id ?? "");
   const [toWarehouseId, setToWarehouseId] = useState(props.warehouses[1]?.id ?? props.warehouses[0]?.id ?? "");
   const [reasonCode, setReasonCode] = useState("DAMAGE");
+  const [poReference, setPoReference] = useState("");
+  const [transportId, setTransportId] = useState("");
   const [lines, setLines] = useState<LineRow[]>([{ itemId: "", qty: "", unitCost: "", batchNo: "" }]);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -165,15 +214,17 @@ function TxnModal(props: { kind: TxnKind; items: InventoryItem[]; warehouses: Wa
     setError(null);
     const valid = lines.filter((l) => l.itemId && l.qty);
     if (!valid.length) { setError("Add at least one line with an item and quantity."); return; }
+    if (kind === "receive" && !poReference.trim()) { setError("A purchase order is required for every receipt."); return; }
+    if (kind === "transfer" && !transportId.trim()) { setError("A transport ID is required for every transfer."); return; }
     setSaving(true);
     try {
       if (kind === "receive") {
-        await api.createGoodsReceipt({ warehouseId, lines: valid.map((l) => ({ itemId: l.itemId, qty: Number(l.qty), unitCost: Number(l.unitCost || 0), batchNo: l.batchNo || undefined })) });
+        await api.createGoodsReceipt({ warehouseId, poReference: poReference.trim(), lines: valid.map((l) => ({ itemId: l.itemId, qty: Number(l.qty), unitCost: Number(l.unitCost || 0), batchNo: l.batchNo || undefined })) });
       } else if (kind === "issue") {
         await api.createMaterialIssue({ warehouseId, lines: valid.map((l) => ({ itemId: l.itemId, qty: Number(l.qty) })) });
       } else if (kind === "transfer") {
         if (warehouseId === toWarehouseId) { setError("Source and destination warehouses must differ."); setSaving(false); return; }
-        await api.createStockTransfer({ fromWarehouseId: warehouseId, toWarehouseId, lines: valid.map((l) => ({ itemId: l.itemId, qty: Number(l.qty) })) });
+        await api.createStockTransfer({ fromWarehouseId: warehouseId, toWarehouseId, transportId: transportId.trim(), lines: valid.map((l) => ({ itemId: l.itemId, qty: Number(l.qty) })) });
       } else {
         await api.createStockAdjustment({ warehouseId, reasonCode, lines: valid.map((l) => ({ itemId: l.itemId, qtyDelta: Number(l.qty), unitCost: l.unitCost ? Number(l.unitCost) : undefined })) });
       }
@@ -218,6 +269,17 @@ function TxnModal(props: { kind: TxnKind; items: InventoryItem[]; warehouses: Wa
               </div>
             )}
           </div>
+
+          {kind === "receive" && (
+            <div className="field"><label>Purchase Order No. *</label>
+              <input value={poReference} onChange={(e) => setPoReference(e.target.value)} required placeholder="PO-2026-0001" />
+            </div>
+          )}
+          {kind === "transfer" && (
+            <div className="field"><label>Transport ID *</label>
+              <input value={transportId} onChange={(e) => setTransportId(e.target.value)} required placeholder="Vehicle / LR / e-way bill no." />
+            </div>
+          )}
 
           <label style={{ fontSize: 13, fontWeight: 600 }}>Lines</label>
           {lines.map((l, i) => (

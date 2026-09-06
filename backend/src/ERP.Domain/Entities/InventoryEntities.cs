@@ -152,6 +152,7 @@ public class GoodsReceipt
     public string GrnNumber { get; set; } = default!;
     public Guid? SupplierId { get; set; }
     public Guid? PurchaseOrderId { get; set; }
+    public string? PoReference { get; set; }
     public Guid WarehouseId { get; set; }
     public DateOnly? ReceivedDate { get; set; }
     public string Status { get; set; } = "POSTED";
@@ -212,6 +213,7 @@ public class StockTransfer
     public string TransferNumber { get; set; } = default!;
     public Guid FromWarehouseId { get; set; }
     public Guid ToWarehouseId { get; set; }
+    public string? TransportId { get; set; }
     public string Status { get; set; } = "POSTED";
     public DateOnly? TransferDate { get; set; }
     public string? Notes { get; set; }

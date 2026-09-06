@@ -215,6 +215,7 @@ public sealed class CreateGoodsReceiptRequest
     public string? GrnNumber { get; set; }
     public Guid? SupplierId { get; set; }
     public Guid? PurchaseOrderId { get; set; }
+    public string? PoReference { get; set; }
     public Guid WarehouseId { get; set; }
     public DateOnly? ReceivedDate { get; set; }
     public string? Notes { get; set; }
@@ -254,6 +255,7 @@ public sealed class CreateStockTransferRequest
     public string? TransferNumber { get; set; }
     public Guid FromWarehouseId { get; set; }
     public Guid ToWarehouseId { get; set; }
+    public string? TransportId { get; set; }
     public DateOnly? TransferDate { get; set; }
     public string? Notes { get; set; }
     public List<StockTransferLineRequest> Lines { get; set; } = new();
@@ -288,6 +290,7 @@ public sealed class InventoryDocumentResponse
     public Guid? SupplierId { get; set; }
     public string Status { get; set; } = default!;
     public DateOnly? DocumentDate { get; set; }
+    public string? Reference { get; set; }
     public int LineCount { get; set; }
     public decimal TotalValue { get; set; }
     public DateTime CreatedAt { get; set; }

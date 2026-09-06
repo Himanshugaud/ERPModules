@@ -69,6 +69,7 @@ public sealed class GoodsReceiptService : IGoodsReceiptService
             GrnNumber = number,
             SupplierId = request.SupplierId,
             PurchaseOrderId = request.PurchaseOrderId,
+            PoReference = request.PoReference?.Trim(),
             WarehouseId = request.WarehouseId,
             ReceivedDate = request.ReceivedDate ?? DateOnly.FromDateTime(_clock.UtcNow),
             Status = "POSTED",
@@ -160,6 +161,7 @@ public sealed class GoodsReceiptService : IGoodsReceiptService
         SupplierId = r.SupplierId,
         Status = r.Status,
         DocumentDate = r.ReceivedDate,
+        Reference = r.PoReference,
         LineCount = r.Lines.Count,
         TotalValue = totalValue,
         CreatedAt = r.CreatedAt
@@ -357,6 +359,7 @@ public sealed class StockTransferService : IStockTransferService
             TransferNumber = number,
             FromWarehouseId = request.FromWarehouseId,
             ToWarehouseId = request.ToWarehouseId,
+            TransportId = request.TransportId?.Trim(),
             Status = "POSTED",
             TransferDate = request.TransferDate ?? DateOnly.FromDateTime(_clock.UtcNow),
             Notes = request.Notes,
@@ -424,6 +427,7 @@ public sealed class StockTransferService : IStockTransferService
         WarehouseId = t.FromWarehouseId,
         Status = t.Status,
         DocumentDate = t.TransferDate,
+        Reference = t.TransportId,
         LineCount = t.Lines.Count,
         TotalValue = totalValue,
         CreatedAt = t.CreatedAt

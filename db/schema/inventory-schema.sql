@@ -328,6 +328,7 @@ BEGIN
         GrnNumber       NVARCHAR(50)     NOT NULL,
         SupplierId      UNIQUEIDENTIFIER NULL,
         PurchaseOrderId UNIQUEIDENTIFIER NULL,
+        PoReference     NVARCHAR(50)     NULL,
         WarehouseId     UNIQUEIDENTIFIER NOT NULL,
         ReceivedDate    DATE             NULL,
         Status          NVARCHAR(30)     NOT NULL CONSTRAINT DF_GoodsReceipts_Status DEFAULT N'POSTED',
@@ -442,6 +443,7 @@ BEGIN
         TransferNumber  NVARCHAR(50)     NOT NULL,
         FromWarehouseId UNIQUEIDENTIFIER NOT NULL,
         ToWarehouseId   UNIQUEIDENTIFIER NOT NULL,
+        TransportId     NVARCHAR(50)     NULL,
         Status          NVARCHAR(30)     NOT NULL CONSTRAINT DF_StockTransfers_Status DEFAULT N'POSTED',
         TransferDate    DATE             NULL,
         Notes           NVARCHAR(1000)   NULL,
@@ -799,6 +801,15 @@ IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'IX_Inv_StockMovements_Pr
     CREATE INDEX IX_Inv_StockMovements_Project ON inventory.StockMovements (ProjectId, ItemId);
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'IX_Inv_Batches_Expiry' AND object_id = OBJECT_ID(N'inventory.Batches'))
     CREATE INDEX IX_Inv_Batches_Expiry ON inventory.Batches (OrganizationId, ExpiryDate);
+GO
+
+/* =============================================================================
+   ADDITIVE COLUMNS (idempotent) — for DBs created before these were added.
+   ========================================================================== */
+IF COL_LENGTH(N'inventory.GoodsReceipts', N'PoReference') IS NULL
+    ALTER TABLE inventory.GoodsReceipts ADD PoReference NVARCHAR(50) NULL;
+IF COL_LENGTH(N'inventory.StockTransfers', N'TransportId') IS NULL
+    ALTER TABLE inventory.StockTransfers ADD TransportId NVARCHAR(50) NULL;
 GO
 
 /* =============================================================================
