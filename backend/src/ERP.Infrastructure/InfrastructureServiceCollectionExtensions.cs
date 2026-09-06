@@ -56,6 +56,20 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddScoped<IMilestoneRepository, MilestoneRepository>();
         services.AddScoped<ISprintRepository, SprintRepository>();
 
+        // Inventory
+        services.AddScoped<IItemRepository, ItemRepository>();
+        services.AddScoped<IItemCategoryRepository, ItemCategoryRepository>();
+        services.AddScoped<IUnitOfMeasureRepository, UnitOfMeasureRepository>();
+        services.AddScoped<IWarehouseRepository, WarehouseRepository>();
+        services.AddScoped<ISupplierRepository, SupplierRepository>();
+        services.AddScoped<IBatchRepository, BatchRepository>();
+        services.AddScoped<IStockLevelRepository, StockLevelRepository>();
+        services.AddScoped<IStockMovementRepository, StockMovementRepository>();
+        services.AddScoped<IGoodsReceiptRepository, GoodsReceiptRepository>();
+        services.AddScoped<IMaterialIssueRepository, MaterialIssueRepository>();
+        services.AddScoped<IStockTransferRepository, StockTransferRepository>();
+        services.AddScoped<IStockAdjustmentRepository, StockAdjustmentRepository>();
+
         return services;
     }
 }
