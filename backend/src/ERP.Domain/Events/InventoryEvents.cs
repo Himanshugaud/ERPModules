@@ -41,3 +41,17 @@ public record ReorderLevelBreached(Guid ItemId, Guid WarehouseId, decimal QtyOnH
     public override string AggregateType => "Item";
     public override Guid AggregateId => ItemId;
 }
+
+public record WorkOrderReleased(Guid WorkOrderId, string WoNumber) : IntegrationEvent
+{
+    public override string EventType => "WorkOrderReleased";
+    public override string AggregateType => "WorkOrder";
+    public override Guid AggregateId => WorkOrderId;
+}
+
+public record WorkOrderCompleted(Guid WorkOrderId, Guid OutputItemId, decimal ProducedQty) : IntegrationEvent
+{
+    public override string EventType => "WorkOrderCompleted";
+    public override string AggregateType => "WorkOrder";
+    public override Guid AggregateId => WorkOrderId;
+}

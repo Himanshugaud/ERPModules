@@ -60,4 +60,13 @@ public static class RefDocTypes
     public const string MaterialIssue = "ISSUE";
     public const string StockTransfer = "TRANSFER";
     public const string StockAdjustment = "ADJUSTMENT";
+    public const string WorkOrder = "WORK_ORDER";
+}
+
+public static class WorkOrderStatuses
+{
+    public const string Draft = "DRAFT";
+    public const string Released = "RELEASED";
+    public const string Completed = "COMPLETED";
+    public const string Cancelled = "CANCELLED";
 }

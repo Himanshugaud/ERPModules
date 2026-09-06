@@ -31,6 +31,8 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<IMaterialIssueService, MaterialIssueService>();
         services.AddScoped<IStockTransferService, StockTransferService>();
         services.AddScoped<IStockAdjustmentService, StockAdjustmentService>();
+        services.AddScoped<IBomService, BomService>();
+        services.AddScoped<IWorkOrderService, WorkOrderService>();
         return services;
     }
 }

@@ -47,6 +47,11 @@ public sealed class ErpDbContext : DbContext
     public DbSet<StockAdjustment> StockAdjustments => Set<StockAdjustment>();
     public DbSet<StockAdjustmentLine> StockAdjustmentLines => Set<StockAdjustmentLine>();
 
+    public DbSet<BillOfMaterials> BillsOfMaterials => Set<BillOfMaterials>();
+    public DbSet<BomLine> BomLines => Set<BomLine>();
+    public DbSet<WorkOrder> WorkOrders => Set<WorkOrder>();
+    public DbSet<WorkOrderComponent> WorkOrderComponents => Set<WorkOrderComponent>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(ErpDbContext).Assembly);

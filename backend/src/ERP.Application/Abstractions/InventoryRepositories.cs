@@ -42,6 +42,19 @@ public sealed class InventoryDocFilter : PageRequest
     public Guid? ProjectId { get; set; }
 }
 
+public sealed class BomFilter : PageRequest
+{
+    public Guid? OutputItemId { get; set; }
+    public string? Search { get; set; }
+}
+
+public sealed class WorkOrderFilter : PageRequest
+{
+    public string? Status { get; set; }
+    public Guid? ProjectId { get; set; }
+    public Guid? WarehouseId { get; set; }
+}
+
 public interface IItemRepository
 {
     Task<Item?> GetByIdAsync(Guid organizationId, Guid id, bool track, CancellationToken ct = default);
@@ -133,4 +146,20 @@ public interface IStockAdjustmentRepository
     Task<PagedResult<StockAdjustment>> ListAsync(Guid organizationId, InventoryDocFilter filter, CancellationToken ct = default);
     Task<bool> NumberExistsAsync(Guid organizationId, string number, CancellationToken ct = default);
     Task AddAsync(StockAdjustment adjustment, CancellationToken ct = default);
+}
+
+public interface IBomRepository
+{
+    Task<BillOfMaterials?> GetAsync(Guid organizationId, Guid id, bool track, CancellationToken ct = default);
+    Task<PagedResult<BillOfMaterials>> ListAsync(Guid organizationId, BomFilter filter, CancellationToken ct = default);
+    Task<bool> CodeExistsAsync(Guid organizationId, string code, Guid? excludeId, CancellationToken ct = default);
+    Task AddAsync(BillOfMaterials bom, CancellationToken ct = default);
+}
+
+public interface IWorkOrderRepository
+{
+    Task<WorkOrder?> GetAsync(Guid organizationId, Guid id, bool track, CancellationToken ct = default);
+    Task<PagedResult<WorkOrder>> ListAsync(Guid organizationId, WorkOrderFilter filter, CancellationToken ct = default);
+    Task<bool> NumberExistsAsync(Guid organizationId, string number, CancellationToken ct = default);
+    Task AddAsync(WorkOrder workOrder, CancellationToken ct = default);
 }

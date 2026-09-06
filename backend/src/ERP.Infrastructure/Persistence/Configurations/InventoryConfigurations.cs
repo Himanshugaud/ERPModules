@@ -197,3 +197,53 @@ public sealed class StockAdjustmentLineConfiguration : IEntityTypeConfiguration<
         b.Property(x => x.UnitCost).HasColumnType("decimal(19,4)");
     }
 }
+
+public sealed class BillOfMaterialsConfiguration : IEntityTypeConfiguration<BillOfMaterials>
+{
+    public void Configure(EntityTypeBuilder<BillOfMaterials> b)
+    {
+        b.ToTable("BillsOfMaterials", "inventory");
+        b.HasKey(x => x.Id);
+        b.Property(x => x.Code).HasMaxLength(50);
+        b.Property(x => x.OutputQty).HasColumnType("decimal(19,4)");
+        b.HasMany(x => x.Lines).WithOne().HasForeignKey(l => l.BillOfMaterialsId);
+    }
+}
+
+public sealed class BomLineConfiguration : IEntityTypeConfiguration<BomLine>
+{
+    public void Configure(EntityTypeBuilder<BomLine> b)
+    {
+        b.ToTable("BomLines", "inventory");
+        b.HasKey(x => x.Id);
+        b.Property(x => x.Qty).HasColumnType("decimal(19,4)");
+        b.Property(x => x.ScrapPercent).HasColumnType("decimal(9,4)");
+        b.Property(x => x.Operation).HasMaxLength(100);
+    }
+}
+
+public sealed class WorkOrderConfiguration : IEntityTypeConfiguration<WorkOrder>
+{
+    public void Configure(EntityTypeBuilder<WorkOrder> b)
+    {
+        b.ToTable("WorkOrders", "inventory");
+        b.HasKey(x => x.Id);
+        b.Property(x => x.WoNumber).HasMaxLength(50);
+        b.Property(x => x.PlannedQty).HasColumnType("decimal(19,4)");
+        b.Property(x => x.ProducedQty).HasColumnType("decimal(19,4)");
+        b.Property(x => x.ScrapQty).HasColumnType("decimal(19,4)");
+        b.Property(x => x.RowVersion).IsRowVersion();
+        b.HasMany(x => x.Components).WithOne().HasForeignKey(c => c.WorkOrderId);
+    }
+}
+
+public sealed class WorkOrderComponentConfiguration : IEntityTypeConfiguration<WorkOrderComponent>
+{
+    public void Configure(EntityTypeBuilder<WorkOrderComponent> b)
+    {
+        b.ToTable("WorkOrderComponents", "inventory");
+        b.HasKey(x => x.Id);
+        b.Property(x => x.PlannedQty).HasColumnType("decimal(19,4)");
+        b.Property(x => x.ConsumedQty).HasColumnType("decimal(19,4)");
+    }
+}

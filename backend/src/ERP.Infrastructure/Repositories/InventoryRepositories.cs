@@ -316,3 +316,62 @@ public sealed class StockAdjustmentRepository : IStockAdjustmentRepository
 
     public async Task AddAsync(StockAdjustment adjustment, CancellationToken ct = default) => await _db.StockAdjustments.AddAsync(adjustment, ct);
 }
+
+public sealed class BomRepository : IBomRepository
+{
+    private readonly ErpDbContext _db;
+    public BomRepository(ErpDbContext db) => _db = db;
+
+    public Task<BillOfMaterials?> GetAsync(Guid organizationId, Guid id, bool track, CancellationToken ct = default)
+    {
+        var q = track ? _db.BillsOfMaterials.Include(b => b.Lines) : _db.BillsOfMaterials.AsNoTracking().Include(b => b.Lines);
+        return q.FirstOrDefaultAsync(b => b.OrganizationId == organizationId && b.Id == id, ct);
+    }
+
+    public async Task<PagedResult<BillOfMaterials>> ListAsync(Guid organizationId, BomFilter filter, CancellationToken ct = default)
+    {
+        var q = _db.BillsOfMaterials.AsNoTracking().Include(b => b.Lines).Where(b => b.OrganizationId == organizationId);
+        if (filter.OutputItemId.HasValue) q = q.Where(b => b.OutputItemId == filter.OutputItemId);
+        if (!string.IsNullOrWhiteSpace(filter.Search))
+        {
+            var term = filter.Search.Trim();
+            q = q.Where(b => EF.Functions.Like(b.Code, $"%{term}%"));
+        }
+        var total = await q.LongCountAsync(ct);
+        var items = await q.OrderByDescending(b => b.CreatedAt).Skip(filter.Skip).Take(filter.PageSize).ToListAsync(ct);
+        return new PagedResult<BillOfMaterials> { Items = items, TotalItems = total, Page = filter.Page, PageSize = filter.PageSize };
+    }
+
+    public Task<bool> CodeExistsAsync(Guid organizationId, string code, Guid? excludeId, CancellationToken ct = default) =>
+        _db.BillsOfMaterials.AnyAsync(b => b.OrganizationId == organizationId && b.Code == code && (excludeId == null || b.Id != excludeId), ct);
+
+    public async Task AddAsync(BillOfMaterials bom, CancellationToken ct = default) => await _db.BillsOfMaterials.AddAsync(bom, ct);
+}
+
+public sealed class WorkOrderRepository : IWorkOrderRepository
+{
+    private readonly ErpDbContext _db;
+    public WorkOrderRepository(ErpDbContext db) => _db = db;
+
+    public Task<WorkOrder?> GetAsync(Guid organizationId, Guid id, bool track, CancellationToken ct = default)
+    {
+        var q = track ? _db.WorkOrders.Include(w => w.Components) : _db.WorkOrders.AsNoTracking().Include(w => w.Components);
+        return q.FirstOrDefaultAsync(w => w.OrganizationId == organizationId && w.Id == id, ct);
+    }
+
+    public async Task<PagedResult<WorkOrder>> ListAsync(Guid organizationId, WorkOrderFilter filter, CancellationToken ct = default)
+    {
+        var q = _db.WorkOrders.AsNoTracking().Where(w => w.OrganizationId == organizationId);
+        if (!string.IsNullOrWhiteSpace(filter.Status)) q = q.Where(w => w.Status == filter.Status);
+        if (filter.ProjectId.HasValue) q = q.Where(w => w.ProjectId == filter.ProjectId);
+        if (filter.WarehouseId.HasValue) q = q.Where(w => w.WarehouseId == filter.WarehouseId);
+        var total = await q.LongCountAsync(ct);
+        var items = await q.OrderByDescending(w => w.CreatedAt).Skip(filter.Skip).Take(filter.PageSize).ToListAsync(ct);
+        return new PagedResult<WorkOrder> { Items = items, TotalItems = total, Page = filter.Page, PageSize = filter.PageSize };
+    }
+
+    public Task<bool> NumberExistsAsync(Guid organizationId, string number, CancellationToken ct = default) =>
+        _db.WorkOrders.AnyAsync(w => w.OrganizationId == organizationId && w.WoNumber == number, ct);
+
+    public async Task AddAsync(WorkOrder workOrder, CancellationToken ct = default) => await _db.WorkOrders.AddAsync(workOrder, ct);
+}

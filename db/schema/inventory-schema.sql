@@ -827,6 +827,14 @@ FROM (VALUES
     (N'issue.create',        N'Create Material Issues',  N'inventory', N'issue',         N'create'),
     (N'transfer.read',       N'View Stock Transfers',    N'inventory', N'transfer',      N'read'),
     (N'transfer.create',     N'Create Stock Transfers',  N'inventory', N'transfer',      N'create'),
+    (N'bom.read',            N'View BOMs',               N'inventory', N'bom',           N'read'),
+    (N'bom.create',          N'Create BOMs',             N'inventory', N'bom',           N'create'),
+    (N'bom.update',          N'Update BOMs',             N'inventory', N'bom',           N'update'),
+    (N'bom.delete',          N'Delete BOMs',             N'inventory', N'bom',           N'delete'),
+    (N'workorder.read',      N'View Work Orders',        N'inventory', N'workorder',     N'read'),
+    (N'workorder.create',    N'Create Work Orders',      N'inventory', N'workorder',     N'create'),
+    (N'workorder.release',   N'Release Work Orders',     N'inventory', N'workorder',     N'release'),
+    (N'workorder.complete',  N'Complete Work Orders',    N'inventory', N'workorder',     N'complete'),
     (N'inventory.report.read', N'View Inventory Reports', N'inventory', N'report',       N'read')
 ) AS v(Code, Name, Module, Resource, Action)
 WHERE NOT EXISTS (SELECT 1 FROM core.Permissions p WHERE p.Code = v.Code);

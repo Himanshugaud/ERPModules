@@ -54,6 +54,16 @@ public static class Permissions
     public const string TransferRead = "transfer.read";
     public const string TransferCreate = "transfer.create";
 
+    public const string BomRead = "bom.read";
+    public const string BomCreate = "bom.create";
+    public const string BomUpdate = "bom.update";
+    public const string BomDelete = "bom.delete";
+
+    public const string WorkOrderRead = "workorder.read";
+    public const string WorkOrderCreate = "workorder.create";
+    public const string WorkOrderRelease = "workorder.release";
+    public const string WorkOrderComplete = "workorder.complete";
+
     public const string InventoryReportRead = "inventory.report.read";
 }
 
@@ -73,6 +83,8 @@ public static class EntityTypes
     public const string MaterialIssue = "MATERIAL_ISSUE";
     public const string StockTransfer = "STOCK_TRANSFER";
     public const string StockAdjustment = "STOCK_ADJUSTMENT";
+    public const string Bom = "BOM";
+    public const string WorkOrder = "WORK_ORDER";
 }
 
 public static class AuditActions

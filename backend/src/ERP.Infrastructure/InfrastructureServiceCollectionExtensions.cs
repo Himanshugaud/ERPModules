@@ -69,6 +69,8 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddScoped<IMaterialIssueRepository, MaterialIssueRepository>();
         services.AddScoped<IStockTransferRepository, StockTransferRepository>();
         services.AddScoped<IStockAdjustmentRepository, StockAdjustmentRepository>();
+        services.AddScoped<IBomRepository, BomRepository>();
+        services.AddScoped<IWorkOrderRepository, WorkOrderRepository>();
 
         return services;
     }

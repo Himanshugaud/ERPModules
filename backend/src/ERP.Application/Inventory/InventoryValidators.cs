@@ -141,3 +141,39 @@ public sealed class CreateStockAdjustmentRequestValidator : AbstractValidator<Cr
         });
     }
 }
+
+public sealed class CreateBomRequestValidator : AbstractValidator<CreateBomRequest>
+{
+    public CreateBomRequestValidator()
+    {
+        RuleFor(x => x.Code).NotEmpty().MaximumLength(50);
+        RuleFor(x => x.OutputItemId).NotEmpty();
+        RuleFor(x => x.OutputQty).GreaterThan(0);
+        RuleFor(x => x.Lines).NotEmpty().WithMessage("A BOM must have at least one component.");
+        RuleForEach(x => x.Lines).ChildRules(l =>
+        {
+            l.RuleFor(x => x.ComponentItemId).NotEmpty();
+            l.RuleFor(x => x.Qty).GreaterThan(0);
+            l.RuleFor(x => x.ScrapPercent).InclusiveBetween(0, 100);
+        });
+    }
+}
+
+public sealed class CreateWorkOrderRequestValidator : AbstractValidator<CreateWorkOrderRequest>
+{
+    public CreateWorkOrderRequestValidator()
+    {
+        RuleFor(x => x.OutputItemId).NotEmpty();
+        RuleFor(x => x.PlannedQty).GreaterThan(0);
+        RuleFor(x => x.WarehouseId).NotEmpty();
+    }
+}
+
+public sealed class CompleteWorkOrderRequestValidator : AbstractValidator<CompleteWorkOrderRequest>
+{
+    public CompleteWorkOrderRequestValidator()
+    {
+        RuleFor(x => x.ProducedQty).GreaterThan(0);
+        RuleFor(x => x.ScrapQty).GreaterThanOrEqualTo(0);
+    }
+}
