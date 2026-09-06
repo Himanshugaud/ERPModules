@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
-import { api, clearToken, getToken, setToken, type LoginResponse } from "../api/client";
+import { api, clearToken, clearRefCache, getToken, prefetchReferenceData, setToken, type LoginResponse } from "../api/client";
 
 type AuthUser = LoginResponse["user"];
 
@@ -23,16 +23,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     // If token is gone but user cached, clear.
     if (!getToken()) setUser(null);
+    // Already signed in on reload: warm the cache so pages load instantly.
+    else prefetchReferenceData();
   }, []);
 
   async function login(organizationCode: string, email: string) {
     const res = await api.login(organizationCode, email);
+    clearRefCache(); // drop any cached reference data from a previous session/org
     setToken(res.accessToken);
     localStorage.setItem(USER_KEY, JSON.stringify(res.user));
     setUser(res.user);
+    prefetchReferenceData(); // preload lookups so the first page doesn't fetch them
   }
 
   function logout() {
+    clearRefCache();
     clearToken();
     localStorage.removeItem(USER_KEY);
     setUser(null);

@@ -45,6 +45,30 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   return body as T;
 }
 
+// ---- Session-scoped cache for rarely-changing reference data ----
+// Lives for the life of the SPA session (module singleton). Prevents every page
+// navigation from re-fetching the same lookups over the (slow) remote SQL round trip.
+const refCache = new Map<string, Promise<unknown>>();
+
+function cached<T>(key: string, loader: () => Promise<T>): Promise<T> {
+  const hit = refCache.get(key) as Promise<T> | undefined;
+  if (hit) return hit;
+  const p = loader().catch((e) => {
+    refCache.delete(key); // don't cache failures
+    throw e;
+  });
+  refCache.set(key, p);
+  return p;
+}
+
+function invalidate(...keys: string[]) {
+  keys.forEach((k) => refCache.delete(k));
+}
+
+export function clearRefCache() {
+  refCache.clear();
+}
+
 // ---- Types ----
 export interface LoginResponse {
   accessToken: string;
@@ -186,22 +210,48 @@ export const api = {
   assignTask: (taskId: string, assigneeId: string | null) =>
     request<{ data: Task }>(`/tasks/${taskId}/assignee`, { method: "PUT", body: JSON.stringify({ assigneeId }) }).then((r) => r.data),
 
-  projectStatuses: () => request<{ data: Lookup[] }>("/project-statuses").then((r) => r.data),
-  projectPriorities: () => request<{ data: Lookup[] }>("/project-priorities").then((r) => r.data),
-  taskStatuses: () => request<{ data: Lookup[] }>("/task-statuses").then((r) => r.data),
-  taskPriorities: () => request<{ data: Lookup[] }>("/task-priorities").then((r) => r.data),
-  departments: () => request<{ data: Lookup[] }>("/departments").then((r) => r.data),
-  clients: () => request<{ data: Client[] }>("/clients").then((r) => r.data),
+  projectStatuses: () => cached("projectStatuses", () => request<{ data: Lookup[] }>("/project-statuses").then((r) => r.data)),
+  projectPriorities: () => cached("projectPriorities", () => request<{ data: Lookup[] }>("/project-priorities").then((r) => r.data)),
+  taskStatuses: () => cached("taskStatuses", () => request<{ data: Lookup[] }>("/task-statuses").then((r) => r.data)),
+  taskPriorities: () => cached("taskPriorities", () => request<{ data: Lookup[] }>("/task-priorities").then((r) => r.data)),
+  departments: () => cached("departments", () => request<{ data: Lookup[] }>("/departments").then((r) => r.data)),
+  clients: () => cached("clients", () => request<{ data: Client[] }>("/clients").then((r) => r.data)),
   client: (id: string) => request<{ data: Client }>(`/clients/${id}`).then((r) => r.data),
   createClient: (payload: Record<string, unknown>) =>
-    request<{ data: Client }>("/clients", { method: "POST", body: JSON.stringify(payload) }).then((r) => r.data),
+    request<{ data: Client }>("/clients", { method: "POST", body: JSON.stringify(payload) }).then((r) => {
+      invalidate("clients");
+      return r.data;
+    }),
   updateClient: (id: string, payload: Record<string, unknown>) =>
-    request<{ data: Client }>(`/clients/${id}`, { method: "PUT", body: JSON.stringify(payload) }).then((r) => r.data),
+    request<{ data: Client }>(`/clients/${id}`, { method: "PUT", body: JSON.stringify(payload) }).then((r) => {
+      invalidate("clients");
+      return r.data;
+    }),
 
-  users: () => request<Paged<UserItem>>("/users?pageSize=100").then((r) => r.data),
+  users: () => cached("users", () => request<Paged<UserItem>>("/users?pageSize=100").then((r) => r.data)),
   user: (id: string) => request<{ data: UserItem }>(`/users/${id}`).then((r) => r.data),
   createUser: (payload: Record<string, unknown>) =>
-    request<{ data: UserItem }>("/users", { method: "POST", body: JSON.stringify(payload) }).then((r) => r.data),
+    request<{ data: UserItem }>("/users", { method: "POST", body: JSON.stringify(payload) }).then((r) => {
+      invalidate("users");
+      return r.data;
+    }),
   updateUser: (id: string, payload: Record<string, unknown>) =>
-    request<{ data: UserItem }>(`/users/${id}`, { method: "PUT", body: JSON.stringify(payload) }).then((r) => r.data)
+    request<{ data: UserItem }>(`/users/${id}`, { method: "PUT", body: JSON.stringify(payload) }).then((r) => {
+      invalidate("users");
+      return r.data;
+    })
 };
+
+// Warm the reference-data cache so pages don't fetch these lookups on first visit.
+// Fire-and-forget; per-call failures (e.g. 403 on /users) are isolated and self-heal.
+export function prefetchReferenceData() {
+  void Promise.allSettled([
+    api.projectStatuses(),
+    api.projectPriorities(),
+    api.taskStatuses(),
+    api.taskPriorities(),
+    api.departments(),
+    api.clients(),
+    api.users()
+  ]);
+}
