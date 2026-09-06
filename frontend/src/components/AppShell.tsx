@@ -11,6 +11,13 @@ const navManage = [
   { to: "/clients", label: "Clients", ico: "◑" },
   { to: "/employees", label: "Employees", ico: "☺" }
 ];
+const navInventory = [
+  { to: "/inventory/items", label: "Items", ico: "❖" },
+  { to: "/inventory/stock", label: "Stock", ico: "▥" },
+  { to: "/inventory/production", label: "Production", ico: "⚒" },
+  { to: "/inventory/warehouses", label: "Warehouses", ico: "🏬" },
+  { to: "/inventory/suppliers", label: "Suppliers", ico: "🚚" }
+];
 const navCore = [
   { to: "/core", label: "Core", ico: "◈" },
   { to: "/settings", label: "Settings", ico: "⚙" }
@@ -45,6 +52,13 @@ export default function AppShell() {
           ))}
           <div className="nav-label">Management</div>
           {navManage.map((n) => (
+            <NavLink key={n.to} to={n.to} className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`}>
+              <span className="ico">{n.ico}</span>
+              {n.label}
+            </NavLink>
+          ))}
+          <div className="nav-label">Inventory</div>
+          {navInventory.map((n) => (
             <NavLink key={n.to} to={n.to} className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`}>
               <span className="ico">{n.ico}</span>
               {n.label}

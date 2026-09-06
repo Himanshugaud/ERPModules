@@ -161,6 +161,150 @@ export interface Client {
   updatedAt?: string;
 }
 
+// ---- Inventory types ----
+export interface InventoryItem {
+  id: string;
+  code: string;
+  name: string;
+  description?: string;
+  itemType: string;
+  categoryId?: string;
+  baseUomId?: string;
+  barcode?: string;
+  trackBatches: boolean;
+  trackSerials: boolean;
+  trackExpiry: boolean;
+  valuationMethod: string;
+  standardCost?: number;
+  reorderLevel?: number;
+  safetyStock?: number;
+  minStock?: number;
+  maxStock?: number;
+  reorderQty?: number;
+  isPurchasable: boolean;
+  isManufactured: boolean;
+  isSellable: boolean;
+  isActive: boolean;
+  createdAt: string;
+  rowVersion: string;
+}
+
+export interface Warehouse {
+  id: string;
+  code: string;
+  name: string;
+  warehouseType: string;
+  projectId?: string;
+  address?: string;
+  isActive: boolean;
+  createdAt: string;
+}
+
+export interface Supplier {
+  id: string;
+  code: string;
+  name: string;
+  email?: string;
+  phone?: string;
+  address?: string;
+  status: string;
+  createdAt: string;
+}
+
+export interface ItemCategory {
+  id: string;
+  code: string;
+  name: string;
+  parentCategoryId?: string;
+  isActive: boolean;
+}
+
+export interface Uom {
+  id: string;
+  code: string;
+  name: string;
+  isBaseUnit: boolean;
+}
+
+export interface StockLevel {
+  id: string;
+  itemId: string;
+  warehouseId: string;
+  batchId?: string;
+  qtyOnHand: number;
+  qtyReserved: number;
+  qtyAvailable: number;
+  qtyInTransit: number;
+  avgUnitCost: number;
+  stockValue: number;
+}
+
+export interface StockMovement {
+  id: string;
+  itemId: string;
+  warehouseId: string;
+  batchId?: string;
+  movementType: string;
+  direction: string;
+  qty: number;
+  unitCost: number;
+  totalCost: number;
+  refDocType?: string;
+  refDocId?: string;
+  projectId?: string;
+  occurredAt: string;
+}
+
+export interface InventoryDocument {
+  id: string;
+  number: string;
+  documentType: string;
+  warehouseId: string;
+  projectId?: string;
+  supplierId?: string;
+  status: string;
+  documentDate?: string;
+  lineCount: number;
+  totalValue: number;
+  createdAt: string;
+}
+
+export interface Bom {
+  id: string;
+  code: string;
+  outputItemId: string;
+  outputQty: number;
+  uomId?: string;
+  version: number;
+  isActive: boolean;
+  createdAt: string;
+  lines: { id: string; componentItemId: string; qty: number; uomId?: string; scrapPercent: number; operation?: string }[];
+}
+
+export interface WorkOrder {
+  id: string;
+  woNumber: string;
+  outputItemId: string;
+  bomId?: string;
+  plannedQty: number;
+  producedQty: number;
+  scrapQty: number;
+  warehouseId: string;
+  projectId?: string;
+  status: string;
+  startDate?: string;
+  endDate?: string;
+  createdAt: string;
+  rowVersion: string;
+  components: { id: string; componentItemId: string; plannedQty: number; consumedQty: number; uomId?: string }[];
+}
+
+function qstr(params: Record<string, string | number | boolean | undefined>) {
+  const qs = new URLSearchParams();
+  Object.entries(params).forEach(([k, v]) => v != null && v !== "" && qs.append(k, String(v)));
+  return qs.toString();
+}
+
 // ---- Endpoints ----
 export const api = {
   login: (organizationCode: string, email: string) =>
@@ -239,7 +383,87 @@ export const api = {
     request<{ data: UserItem }>(`/users/${id}`, { method: "PUT", body: JSON.stringify(payload) }).then((r) => {
       invalidate("users");
       return r.data;
-    })
+    }),
+
+  // ---- Inventory ----
+  items: (params: Record<string, string | number | boolean | undefined> = {}) =>
+    request<Paged<InventoryItem>>(`/items?${qstr(params)}`),
+  item: (id: string) => request<{ data: InventoryItem }>(`/items/${id}`).then((r) => r.data),
+  createItem: (payload: Record<string, unknown>) =>
+    request<{ data: InventoryItem }>("/items", { method: "POST", body: JSON.stringify(payload) }).then((r) => r.data),
+  updateItem: (id: string, payload: Record<string, unknown>) =>
+    request<{ data: InventoryItem }>(`/items/${id}`, { method: "PUT", body: JSON.stringify(payload) }).then((r) => r.data),
+  deleteItem: (id: string) => request<void>(`/items/${id}`, { method: "DELETE" }),
+
+  warehouses: () => cached("warehouses", () => request<{ data: Warehouse[] }>("/warehouses").then((r) => r.data)),
+  createWarehouse: (payload: Record<string, unknown>) =>
+    request<{ data: Warehouse }>("/warehouses", { method: "POST", body: JSON.stringify(payload) }).then((r) => {
+      invalidate("warehouses");
+      return r.data;
+    }),
+  updateWarehouse: (id: string, payload: Record<string, unknown>) =>
+    request<{ data: Warehouse }>(`/warehouses/${id}`, { method: "PUT", body: JSON.stringify(payload) }).then((r) => {
+      invalidate("warehouses");
+      return r.data;
+    }),
+
+  suppliers: (params: Record<string, string | number | undefined> = {}) =>
+    request<Paged<Supplier>>(`/suppliers?${qstr(params)}`),
+  createSupplier: (payload: Record<string, unknown>) =>
+    request<{ data: Supplier }>("/suppliers", { method: "POST", body: JSON.stringify(payload) }).then((r) => r.data),
+  updateSupplier: (id: string, payload: Record<string, unknown>) =>
+    request<{ data: Supplier }>(`/suppliers/${id}`, { method: "PUT", body: JSON.stringify(payload) }).then((r) => r.data),
+
+  itemCategories: () => cached("itemCategories", () => request<{ data: ItemCategory[] }>("/item-categories").then((r) => r.data)),
+  createItemCategory: (payload: Record<string, unknown>) =>
+    request<{ data: ItemCategory }>("/item-categories", { method: "POST", body: JSON.stringify(payload) }).then((r) => {
+      invalidate("itemCategories");
+      return r.data;
+    }),
+  uoms: () => cached("uoms", () => request<{ data: Uom[] }>("/units-of-measure").then((r) => r.data)),
+
+  stock: (params: Record<string, string | number | boolean | undefined> = {}) =>
+    request<Paged<StockLevel>>(`/stock?${qstr(params)}`),
+  lowStock: (params: Record<string, string | number | undefined> = {}) =>
+    request<Paged<StockLevel>>(`/stock/low?${qstr(params)}`),
+  stockMovements: (params: Record<string, string | number | undefined> = {}) =>
+    request<Paged<StockMovement>>(`/stock/movements?${qstr(params)}`),
+
+  goodsReceipts: (params: Record<string, string | number | undefined> = {}) =>
+    request<Paged<InventoryDocument>>(`/goods-receipts?${qstr(params)}`),
+  createGoodsReceipt: (payload: Record<string, unknown>) =>
+    request<{ data: InventoryDocument }>("/goods-receipts", { method: "POST", body: JSON.stringify(payload) }).then((r) => r.data),
+
+  materialIssues: (params: Record<string, string | number | undefined> = {}) =>
+    request<Paged<InventoryDocument>>(`/material-issues?${qstr(params)}`),
+  createMaterialIssue: (payload: Record<string, unknown>) =>
+    request<{ data: InventoryDocument }>("/material-issues", { method: "POST", body: JSON.stringify(payload) }).then((r) => r.data),
+
+  stockTransfers: (params: Record<string, string | number | undefined> = {}) =>
+    request<Paged<InventoryDocument>>(`/stock-transfers?${qstr(params)}`),
+  createStockTransfer: (payload: Record<string, unknown>) =>
+    request<{ data: InventoryDocument }>("/stock-transfers", { method: "POST", body: JSON.stringify(payload) }).then((r) => r.data),
+
+  stockAdjustments: (params: Record<string, string | number | undefined> = {}) =>
+    request<Paged<InventoryDocument>>(`/stock-adjustments?${qstr(params)}`),
+  createStockAdjustment: (payload: Record<string, unknown>) =>
+    request<{ data: InventoryDocument }>("/stock-adjustments", { method: "POST", body: JSON.stringify(payload) }).then((r) => r.data),
+
+  boms: (params: Record<string, string | number | undefined> = {}) =>
+    request<Paged<Bom>>(`/boms?${qstr(params)}`),
+  bom: (id: string) => request<{ data: Bom }>(`/boms/${id}`).then((r) => r.data),
+  createBom: (payload: Record<string, unknown>) =>
+    request<{ data: Bom }>("/boms", { method: "POST", body: JSON.stringify(payload) }).then((r) => r.data),
+
+  workOrders: (params: Record<string, string | number | undefined> = {}) =>
+    request<Paged<WorkOrder>>(`/work-orders?${qstr(params)}`),
+  workOrder: (id: string) => request<{ data: WorkOrder }>(`/work-orders/${id}`).then((r) => r.data),
+  createWorkOrder: (payload: Record<string, unknown>) =>
+    request<{ data: WorkOrder }>("/work-orders", { method: "POST", body: JSON.stringify(payload) }).then((r) => r.data),
+  releaseWorkOrder: (id: string) =>
+    request<{ data: WorkOrder }>(`/work-orders/${id}/release`, { method: "POST" }).then((r) => r.data),
+  completeWorkOrder: (id: string, payload: Record<string, unknown>) =>
+    request<{ data: WorkOrder }>(`/work-orders/${id}/complete`, { method: "POST", body: JSON.stringify(payload) }).then((r) => r.data)
 };
 
 // Warm the reference-data cache so pages don't fetch these lookups on first visit.

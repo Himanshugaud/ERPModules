@@ -10,6 +10,11 @@ import Requirements from "./pages/Requirements";
 import Clients from "./pages/Clients";
 import Employees from "./pages/Employees";
 import Profile from "./pages/Profile";
+import InventoryItems from "./pages/InventoryItems";
+import InventoryStock from "./pages/InventoryStock";
+import InventoryWarehouses from "./pages/InventoryWarehouses";
+import InventorySuppliers from "./pages/InventorySuppliers";
+import Production from "./pages/Production";
 import Placeholder from "./pages/Placeholder";
 
 export default function App() {
@@ -33,6 +38,11 @@ export default function App() {
             <Route path="requirements" element={<Requirements />} />
             <Route path="clients" element={<Clients />} />
             <Route path="employees" element={<Employees />} />
+            <Route path="inventory/items" element={<InventoryItems />} />
+            <Route path="inventory/stock" element={<InventoryStock />} />
+            <Route path="inventory/warehouses" element={<InventoryWarehouses />} />
+            <Route path="inventory/suppliers" element={<InventorySuppliers />} />
+            <Route path="inventory/production" element={<Production />} />
             <Route path="profile" element={<Profile />} />
             <Route path="core" element={<Placeholder title="Core" />} />
             <Route path="settings" element={<Placeholder title="Settings" />} />
