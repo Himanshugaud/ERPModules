@@ -6,8 +6,9 @@ import { ApiError } from "../api/client";
 export default function Login() {
   const { login } = useAuth();
   const navigate = useNavigate();
-  const [organizationCode, setOrg] = useState("DEMO");
-  const [email, setEmail] = useState("demo@demo.local");
+  const [organizationCode, setOrg] = useState("TYE");
+  const [email, setEmail] = useState("ceo@tye.local");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -16,7 +17,7 @@ export default function Login() {
     setError(null);
     setLoading(true);
     try {
-      await login(organizationCode.trim(), email.trim());
+      await login(organizationCode.trim(), email.trim(), password);
       navigate("/dashboard");
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Unable to sign in.");
@@ -45,15 +46,19 @@ export default function Login() {
           <input value={organizationCode} onChange={(e) => setOrg(e.target.value)} placeholder="DEMO" required />
         </div>
         <div className="field">
-          <label>Email</label>
-          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@company.com" required />
+          <label>Email or Username</label>
+          <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@company.com or username" required />
+        </div>
+        <div className="field">
+          <label>Password</label>
+          <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Required after a password is assigned" autoComplete="current-password" />
         </div>
 
         <button className="btn primary" style={{ width: "100%", justifyContent: "center" }} disabled={loading}>
           {loading ? <span className="spinner" /> : "Sign in"}
         </button>
 
-        <div className="login-hint">Uses Microsoft Entra ID in production. Demo: DEMO / demo@demo.local</div>
+        <div className="login-hint">Use your organization code, email or username, and assigned password.</div>
       </form>
     </div>
   );

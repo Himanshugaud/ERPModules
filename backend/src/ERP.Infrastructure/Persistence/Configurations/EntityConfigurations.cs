@@ -23,6 +23,8 @@ public sealed class UserConfiguration : IEntityTypeConfiguration<User>
         b.ToTable("Users", "core");
         b.HasKey(x => x.Id);
         b.Property(x => x.Email).HasMaxLength(255);
+        b.Property(x => x.Username).HasMaxLength(100);
+        b.Property(x => x.PasswordHash).HasMaxLength(500);
     }
 }
 

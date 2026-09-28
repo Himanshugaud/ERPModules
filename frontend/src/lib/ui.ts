@@ -12,6 +12,12 @@ export function statusBadge(code?: string): { cls: string; label: string } {
       return { cls: "green", label: "Active" };
     case "PLANNING":
       return { cls: "blue", label: "Planning" };
+    case "INVENTORY_CHECK":
+      return { cls: "amber", label: "Inventory Check" };
+    case "SHIPMENT_IN_TRANSIT":
+      return { cls: "blue", label: "Shipment In Transit" };
+    case "SHIPMENT_COMPLETED":
+      return { cls: "green", label: "Shipment Completed" };
     case "ON_HOLD":
       return { cls: "amber", label: "On Hold" };
     case "COMPLETED":
@@ -48,3 +54,11 @@ export function formatDate(iso?: string): string {
   if (isNaN(d.getTime())) return "—";
   return d.toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "numeric" });
 }
+
+export function formatDateTime(iso?: string): string {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return "—";
+  return d.toLocaleString(undefined, { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
+}
+

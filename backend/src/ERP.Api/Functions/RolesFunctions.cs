@@ -12,6 +12,7 @@ namespace ERP.Api.Functions;
 
 public sealed class RolesFunctions
 {
+    private static readonly string[] RoleViewers = { "SUPER_ADMIN", "Administrator", "Employee Manager" };
     private readonly IRoleService _service;
     private readonly IAuthorizationGuard _auth;
     private readonly IValidator<CreateRoleRequest> _createValidator;
@@ -30,7 +31,7 @@ public sealed class RolesFunctions
     public async Task<IActionResult> List(
         [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "v1/roles")] HttpRequest req, CancellationToken ct)
     {
-        _auth.RequireAnyRole(SystemRoles.Administrative);
+        _auth.RequireAnyRole(RoleViewers);
         return Http.Ok(await _service.ListAsync(ct));
     }
 
@@ -77,7 +78,8 @@ public sealed class RolesFunctions
         [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "v1/roles/{roleId:guid}/permissions")] HttpRequest req,
         Guid roleId, CancellationToken ct)
     {
-        _auth.RequireAnyRole(SystemRoles.Administrative);
+        // Viewing (not mutating) a role's permissions is allowed for anyone who can view roles.
+        _auth.RequireAnyRole(RoleViewers);
         return Http.Ok(await _service.GetPermissionsAsync(roleId, ct));
     }
 

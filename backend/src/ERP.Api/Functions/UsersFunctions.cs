@@ -12,21 +12,38 @@ namespace ERP.Api.Functions;
 
 public sealed class UsersFunctions
 {
-    // Roles allowed to add/edit employees (org-specific, prototype).
-    private static readonly string[] EmployeeManagers = { "CEO", "HR Manager" };
+    // Roles allowed to add/edit employee records (org-specific, prototype).
+    private static readonly string[] EmployeeManagers = { "SUPER_ADMIN", "Administrator", "Employee Manager" };
+    // Roles allowed to change an employee's access: role assignment and password resets.
+    private static readonly string[] AccessManagers = { "SUPER_ADMIN", "Administrator" };
 
     private readonly IUserService _service;
     private readonly IAuthorizationGuard _auth;
     private readonly IValidator<CreateUserRequest> _createValidator;
     private readonly IValidator<UpdateUserRequest> _updateValidator;
+    private readonly IValidator<SetUserPasswordRequest> _passwordValidator;
+    private readonly IValidator<ChangeOwnPasswordRequest> _changeOwnPasswordValidator;
 
     public UsersFunctions(IUserService service, IAuthorizationGuard auth,
-        IValidator<CreateUserRequest> createValidator, IValidator<UpdateUserRequest> updateValidator)
+        IValidator<CreateUserRequest> createValidator, IValidator<UpdateUserRequest> updateValidator,
+        IValidator<SetUserPasswordRequest> passwordValidator, IValidator<ChangeOwnPasswordRequest> changeOwnPasswordValidator)
     {
         _service = service;
         _auth = auth;
         _createValidator = createValidator;
         _updateValidator = updateValidator;
+        _passwordValidator = passwordValidator;
+        _changeOwnPasswordValidator = changeOwnPasswordValidator;
+    }
+
+    [Function("ChangeMyPassword")]
+    public async Task<IActionResult> ChangeMyPassword(
+        [HttpTrigger(AuthorizationLevel.Anonymous, "put", Route = "v1/me/password")] HttpRequest req, CancellationToken ct)
+    {
+        _auth.RequireAuthenticated();
+        var body = await Http.ReadValidatedAsync(req, _changeOwnPasswordValidator, ct);
+        await _service.ChangeOwnPasswordAsync(body, ct);
+        return Http.NoContent();
     }
 
     [Function("ListUsers")]
@@ -89,7 +106,8 @@ public sealed class UsersFunctions
         [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "v1/users/{userId:guid}/roles")] HttpRequest req,
         Guid userId, CancellationToken ct)
     {
-        _auth.RequireAnyRole(SystemRoles.Administrative);
+        // Viewing (not changing) an employee's roles is available to record managers too.
+        _auth.RequireAnyRole(EmployeeManagers);
         return Http.Ok(await _service.GetRolesAsync(userId, ct));
     }
 
@@ -98,7 +116,7 @@ public sealed class UsersFunctions
         [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "v1/users/{userId:guid}/roles/{roleId:guid}")] HttpRequest req,
         Guid userId, Guid roleId, CancellationToken ct)
     {
-        _auth.RequireAnyRole(SystemRoles.Administrative);
+        _auth.RequireAnyRole(AccessManagers);
         await _service.AssignRoleAsync(userId, roleId, ct);
         return Http.NoContent();
     }
@@ -108,8 +126,19 @@ public sealed class UsersFunctions
         [HttpTrigger(AuthorizationLevel.Anonymous, "delete", Route = "v1/users/{userId:guid}/roles/{roleId:guid}")] HttpRequest req,
         Guid userId, Guid roleId, CancellationToken ct)
     {
-        _auth.RequireAnyRole(SystemRoles.Administrative);
+        _auth.RequireAnyRole(AccessManagers);
         await _service.RemoveRoleAsync(userId, roleId, ct);
+        return Http.NoContent();
+    }
+
+    [Function("SetUserPassword")]
+    public async Task<IActionResult> SetPassword(
+        [HttpTrigger(AuthorizationLevel.Anonymous, "put", Route = "v1/users/{userId:guid}/password")] HttpRequest req,
+        Guid userId, CancellationToken ct)
+    {
+        _auth.RequireAnyRole(AccessManagers);
+        var body = await Http.ReadValidatedAsync(req, _passwordValidator, ct);
+        await _service.SetPasswordAsync(userId, body, ct);
         return Http.NoContent();
     }
 }

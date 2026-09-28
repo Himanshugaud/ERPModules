@@ -2,23 +2,45 @@ import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { initials } from "../lib/ui";
 
-const navMain = [
+type NavItem = { to: string; label: string; ico: string; permissions?: string[]; roles?: string[] };
+
+const navMain: NavItem[] = [
   { to: "/dashboard", label: "Dashboard", ico: "▦" },
-  { to: "/projects", label: "Projects", ico: "▤" },
-  { to: "/requirements", label: "Requirements", ico: "▣" }
+  { to: "/projects", label: "Projects", ico: "▤", permissions: ["project.read"] },
+  { to: "/requirements", label: "Requirements", ico: "▣", permissions: ["project.create"] },
+  { to: "/planning", label: "Planning", ico: "⚑", permissions: ["materialrequirement.create", "materialrequirement.read"] }
 ];
-const navManage = [
-  { to: "/clients", label: "Clients", ico: "◑" },
-  { to: "/employees", label: "Employees", ico: "☺" }
+const navManage: NavItem[] = [
+  { to: "/clients", label: "Clients", ico: "◑", permissions: ["project.read"] },
+  { to: "/employees", label: "Employees", ico: "☺", roles: ["SUPER_ADMIN", "Administrator", "Employee Manager"] }
 ];
-const navCore = [
-  { to: "/core", label: "Core", ico: "◈" },
-  { to: "/settings", label: "Settings", ico: "⚙" }
+const navInventory: NavItem[] = [
+  { to: "/inventory/items", label: "Items", ico: "❖", permissions: ["item.read"] },
+  { to: "/inventory/stock", label: "Stock", ico: "▥", permissions: ["stock.read"] },
+  { to: "/inventory/production", label: "Production", ico: "⚒", permissions: ["bom.read", "workorder.read"] },
+  { to: "/inventory/warehouses", label: "Warehouses", ico: "🏬", permissions: ["warehouse.read"] },
+  { to: "/inventory/suppliers", label: "Suppliers", ico: "🚚", permissions: ["supplier.read"] },
+  { to: "/inventory/requests", label: "Material Requests", ico: "📋", permissions: ["materialrequirement.approve", "materialrequirement.read"] }
+];
+const navFulfillment: NavItem[] = [
+  { to: "/shipment", label: "Shipment", ico: "🚚", permissions: ["transfer.dispatch", "transfer.receive"] }
+];
+const navCore: NavItem[] = [
+  { to: "/core", label: "Core", ico: "◈", roles: ["SUPER_ADMIN", "Administrator"] },
+  { to: "/settings", label: "Settings", ico: "⚙", roles: ["SUPER_ADMIN", "Administrator"] }
 ];
 
 export default function AppShell() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const canSee = (item: NavItem) =>
+    (!item.permissions || item.permissions.some((permission) => user?.permissions.includes(permission))) &&
+    (!item.roles || item.roles.some((role) => user?.roles.includes(role)));
+  const visibleMain = navMain.filter(canSee);
+  const visibleManage = navManage.filter(canSee);
+  const visibleInventory = navInventory.filter(canSee);
+  const visibleFulfillment = navFulfillment.filter(canSee);
+  const visibleCore = navCore.filter(canSee);
 
   function onLogout() {
     logout();
@@ -37,21 +59,35 @@ export default function AppShell() {
         </div>
 
         <nav className="nav">
-          {navMain.map((n) => (
+          {visibleMain.map((n) => (
             <NavLink key={n.to} to={n.to} className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`}>
               <span className="ico">{n.ico}</span>
               {n.label}
             </NavLink>
           ))}
-          <div className="nav-label">Management</div>
-          {navManage.map((n) => (
+          {visibleManage.length > 0 && <div className="nav-label">Management</div>}
+          {visibleManage.map((n) => (
             <NavLink key={n.to} to={n.to} className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`}>
               <span className="ico">{n.ico}</span>
               {n.label}
             </NavLink>
           ))}
-          <div className="nav-label">Core</div>
-          {navCore.map((n) => (
+          {visibleInventory.length > 0 && <div className="nav-label">Inventory</div>}
+          {visibleInventory.map((n) => (
+            <NavLink key={n.to} to={n.to} className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`}>
+              <span className="ico">{n.ico}</span>
+              {n.label}
+            </NavLink>
+          ))}
+          {visibleFulfillment.length > 0 && <div className="nav-label">Fulfillment</div>}
+          {visibleFulfillment.map((n) => (
+            <NavLink key={n.to} to={n.to} className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`}>
+              <span className="ico">{n.ico}</span>
+              {n.label}
+            </NavLink>
+          ))}
+          {visibleCore.length > 0 && <div className="nav-label">Core</div>}
+          {visibleCore.map((n) => (
             <NavLink key={n.to} to={n.to} className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`}>
               <span className="ico">{n.ico}</span>
               {n.label}

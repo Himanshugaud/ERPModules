@@ -115,7 +115,7 @@ export default function Requirements() {
             const next = [{ ...req, status: (project ? "CONVERTED" : "NEW") as Requirement["status"], projectId: project?.id }, ...reqs];
             persist(next);
             setWizard(false);
-            if (project) navigate(`/projects/${project.id}`);
+            if (project) navigate(`/planning`);
           }}
         />
       )}
@@ -130,7 +130,7 @@ export default function Requirements() {
           onConverted={(projectId) => {
             persist(reqs.map((x) => x.id === convertReq.id ? { ...x, status: "CONVERTED", projectId } : x));
             setConvert(null);
-            navigate(`/projects/${projectId}`);
+            navigate(`/planning`);
           }}
         />
       )}

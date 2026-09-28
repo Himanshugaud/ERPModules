@@ -48,8 +48,10 @@ public interface IUserRepository
     Task<bool> ExistsAsync(Guid organizationId, Guid userId, CancellationToken ct = default);
     Task<User?> GetAsync(Guid organizationId, Guid userId, bool track, CancellationToken ct = default);
     Task<User?> GetByEmailAsync(Guid organizationId, string email, CancellationToken ct = default);
+    Task<User?> GetByUsernameAsync(Guid organizationId, string username, CancellationToken ct = default);
     Task<PagedResult<User>> ListAsync(Guid organizationId, UserFilter filter, CancellationToken ct = default);
     Task<bool> EmailExistsAsync(Guid organizationId, string email, Guid? excludeId, CancellationToken ct = default);
+    Task<bool> UsernameExistsAsync(Guid organizationId, string username, Guid? excludeId, CancellationToken ct = default);
     Task AddAsync(User user, CancellationToken ct = default);
     Task<IReadOnlyList<Role>> GetRolesAsync(Guid organizationId, Guid userId, CancellationToken ct = default);
     Task<bool> HasRoleAsync(Guid userId, Guid roleId, CancellationToken ct = default);

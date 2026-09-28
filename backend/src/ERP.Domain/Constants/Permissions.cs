@@ -25,6 +25,62 @@ public static class Permissions
 
     public const string AuditRead = "audit.read";
     public const string NotificationRead = "notification.read";
+
+    // Inventory
+    public const string ItemRead = "item.read";
+    public const string ItemCreate = "item.create";
+    public const string ItemUpdate = "item.update";
+    public const string ItemDelete = "item.delete";
+
+    public const string WarehouseRead = "warehouse.read";
+    public const string WarehouseCreate = "warehouse.create";
+    public const string WarehouseUpdate = "warehouse.update";
+    public const string WarehouseDelete = "warehouse.delete";
+
+    public const string SupplierRead = "supplier.read";
+    public const string SupplierCreate = "supplier.create";
+    public const string SupplierUpdate = "supplier.update";
+    public const string SupplierDelete = "supplier.delete";
+
+    public const string StockRead = "stock.read";
+    public const string StockAdjust = "stock.adjust";
+
+    public const string GoodsReceiptRead = "goodsreceipt.read";
+    public const string GoodsReceiptCreate = "goodsreceipt.create";
+
+    public const string IssueRead = "issue.read";
+    public const string IssueCreate = "issue.create";
+
+    public const string TransferRead = "transfer.read";
+    public const string TransferCreate = "transfer.create";
+
+    public const string BomRead = "bom.read";
+    public const string BomCreate = "bom.create";
+    public const string BomUpdate = "bom.update";
+    public const string BomDelete = "bom.delete";
+
+    public const string WorkOrderRead = "workorder.read";
+    public const string WorkOrderCreate = "workorder.create";
+    public const string WorkOrderRelease = "workorder.release";
+    public const string WorkOrderComplete = "workorder.complete";
+
+    public const string InventoryReportRead = "inventory.report.read";
+
+    // Procurement
+    public const string MaterialRequirementRead = "materialrequirement.read";
+    public const string MaterialRequirementCreate = "materialrequirement.create";
+    public const string MaterialRequirementApprove = "materialrequirement.approve";
+    public const string MaterialRequirementConvert = "materialrequirement.convert";
+
+    public const string PurchaseOrderRead = "purchaseorder.read";
+    public const string PurchaseOrderCreate = "purchaseorder.create";
+    public const string PurchaseOrderUpdate = "purchaseorder.update";
+    public const string PurchaseOrderApprove = "purchaseorder.approve";
+    public const string PurchaseOrderClose = "purchaseorder.close";
+
+    public const string TransferApprove = "transfer.approve";
+    public const string TransferDispatch = "transfer.dispatch";
+    public const string TransferReceive = "transfer.receive";
 }
 
 public static class EntityTypes
@@ -36,6 +92,17 @@ public static class EntityTypes
     public const string Timesheet = "TIMESHEET";
     public const string Document = "DOCUMENT";
     public const string Client = "CLIENT";
+    public const string Item = "ITEM";
+    public const string Warehouse = "WAREHOUSE";
+    public const string Supplier = "SUPPLIER";
+    public const string GoodsReceipt = "GOODS_RECEIPT";
+    public const string MaterialIssue = "MATERIAL_ISSUE";
+    public const string StockTransfer = "STOCK_TRANSFER";
+    public const string StockAdjustment = "STOCK_ADJUSTMENT";
+    public const string Bom = "BOM";
+    public const string WorkOrder = "WORK_ORDER";
+    public const string MaterialRequirement = "MATERIAL_REQUIREMENT";
+    public const string PurchaseOrder = "PURCHASE_ORDER";
 }
 
 public static class AuditActions
@@ -52,7 +119,7 @@ public static class AuditActions
 public static class SystemRoles
 {
     public const string SuperAdmin = "SUPER_ADMIN";
-    public const string Admin = "ADMIN";
+    public const string Admin = "Administrator";
     public const string ProjectManager = "PROJECT_MANAGER";
     public const string ProjectMember = "PROJECT_MEMBER";
     public const string Viewer = "VIEWER";
