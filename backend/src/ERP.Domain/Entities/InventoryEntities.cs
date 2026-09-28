@@ -21,6 +21,7 @@ public class UnitOfMeasure
     public Guid OrganizationId { get; set; }
     public string Code { get; set; } = default!;
     public string Name { get; set; } = default!;
+    public string UomType { get; set; } = "QUANTITY";
     public bool IsBaseUnit { get; set; }
     public bool IsActive { get; set; } = true;
     public DateTime CreatedAt { get; set; }
@@ -41,7 +42,6 @@ public class Item
     public bool TrackBatches { get; set; }
     public bool TrackSerials { get; set; }
     public bool TrackExpiry { get; set; }
-    public string ValuationMethod { get; set; } = "WEIGHTED_AVG";
     public decimal? StandardCost { get; set; }
     public decimal? ReorderLevel { get; set; }
     public decimal? SafetyStock { get; set; }
@@ -141,6 +141,7 @@ public class StockMovement
     public Guid? RefDocId { get; set; }
     public Guid? RefDocLineId { get; set; }
     public Guid? ProjectId { get; set; }
+    public string? Remarks { get; set; }
     public DateTime OccurredAt { get; set; }
     public Guid? CreatedBy { get; set; }
 }
@@ -211,12 +212,22 @@ public class StockTransfer
     public Guid Id { get; set; }
     public Guid OrganizationId { get; set; }
     public string TransferNumber { get; set; } = default!;
-    public Guid FromWarehouseId { get; set; }
+    public Guid? FromWarehouseId { get; set; }
+    public string? SourceAddress { get; set; }
     public Guid ToWarehouseId { get; set; }
+    public Guid? ProjectId { get; set; }
+    public Guid? MaterialRequirementId { get; set; }
     public string? TransportId { get; set; }
-    public string Status { get; set; } = "POSTED";
+    public string Status { get; set; } = "REQUESTED";
     public DateOnly? TransferDate { get; set; }
     public string? Notes { get; set; }
+    public Guid? RequestedBy { get; set; }
+    public Guid? ApprovedBy { get; set; }
+    public DateTime? ApprovedAt { get; set; }
+    public Guid? DispatchedBy { get; set; }
+    public DateTime? DispatchedAt { get; set; }
+    public Guid? ReceivedBy { get; set; }
+    public DateTime? ReceivedAt { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
     public Guid? CreatedBy { get; set; }
@@ -232,6 +243,7 @@ public class StockTransferLine
     public decimal Qty { get; set; }
     public Guid? UomId { get; set; }
     public Guid? BatchId { get; set; }
+    public decimal UnitCost { get; set; }
 }
 
 public class StockAdjustment

@@ -1,4 +1,5 @@
 using ERP.Application.Abstractions;
+using ERP.Application.Projects;
 using ERP.Domain.Constants;
 using ERP.Domain.Entities;
 using ERP.Domain.Events;
@@ -21,6 +22,7 @@ public sealed class GoodsReceiptService : IGoodsReceiptService
     private readonly ISupplierRepository _suppliers;
     private readonly IItemRepository _items;
     private readonly IBatchRepository _batches;
+    private readonly IPurchaseOrderRepository _purchaseOrders;
     private readonly IStockLedger _ledger;
     private readonly ITenantContext _tenant;
     private readonly IUnitOfWork _uow;
@@ -28,15 +30,19 @@ public sealed class GoodsReceiptService : IGoodsReceiptService
     private readonly IOutboxWriter _outbox;
     private readonly IClock _clock;
 
+    private static readonly string[] ReceivablePoStatuses =
+        { PurchaseOrderStatuses.Approved, PurchaseOrderStatuses.Ordered, PurchaseOrderStatuses.PartiallyReceived };
+
     public GoodsReceiptService(IGoodsReceiptRepository receipts, IWarehouseRepository warehouses, ISupplierRepository suppliers,
-        IItemRepository items, IBatchRepository batches, IStockLedger ledger, ITenantContext tenant, IUnitOfWork uow,
-        IAuditWriter audit, IOutboxWriter outbox, IClock clock)
+        IItemRepository items, IBatchRepository batches, IPurchaseOrderRepository purchaseOrders, IStockLedger ledger,
+        ITenantContext tenant, IUnitOfWork uow, IAuditWriter audit, IOutboxWriter outbox, IClock clock)
     {
         _receipts = receipts;
         _warehouses = warehouses;
         _suppliers = suppliers;
         _items = items;
         _batches = batches;
+        _purchaseOrders = purchaseOrders;
         _ledger = ledger;
         _tenant = tenant;
         _uow = uow;
@@ -55,6 +61,15 @@ public sealed class GoodsReceiptService : IGoodsReceiptService
         foreach (var line in request.Lines)
             if (!await _items.ExistsAsync(orgId, line.ItemId, ct))
                 throw new ConflictException($"Item {line.ItemId} does not belong to the organization.");
+
+        PurchaseOrder? po = null;
+        if (request.PurchaseOrderId.HasValue)
+        {
+            po = await _purchaseOrders.GetAsync(orgId, request.PurchaseOrderId.Value, track: true, ct)
+                 ?? throw new ConflictException("Purchase order does not belong to the organization.");
+            if (!ReceivablePoStatuses.Contains(po.Status))
+                throw new ConflictException($"Cannot receive against a purchase order in status '{po.Status}'.");
+        }
 
         var number = string.IsNullOrWhiteSpace(request.GrnNumber)
             ? InventoryNumbers.Next("GRN")
@@ -100,8 +115,26 @@ public sealed class GoodsReceiptService : IGoodsReceiptService
                 await _ledger.ReceiveAsync(line.ItemId, request.WarehouseId, line.Qty, line.UnitCost,
                     MovementTypes.Receipt, RefDocTypes.GoodsReceipt, receipt.Id, batchId, null, token);
 
+                if (po is not null)
+                {
+                    var poLine = po.Lines.FirstOrDefault(l => l.ItemId == line.ItemId && l.QtyReceived < l.Qty);
+                    if (poLine is not null)
+                        poLine.QtyReceived += line.Qty;
+                }
+
                 totalValue += line.Qty * line.UnitCost;
                 _outbox.Enqueue(new StockReceived(line.ItemId, request.WarehouseId, line.Qty, line.UnitCost) { OrganizationId = orgId });
+            }
+
+            if (po is not null)
+            {
+                po.Status = po.Lines.All(l => l.QtyReceived >= l.Qty)
+                    ? PurchaseOrderStatuses.Received
+                    : PurchaseOrderStatuses.PartiallyReceived;
+                po.UpdatedAt = _clock.UtcNow;
+                po.UpdatedBy = _tenant.UserId;
+                _audit.Add(EntityTypes.PurchaseOrder, po.Id, AuditActions.StatusChange, null, new { po.PoNumber, po.Status });
+                _outbox.Enqueue(new PurchaseOrderStatusChanged(po.Id, po.Status) { OrganizationId = orgId });
             }
 
             _audit.Add(EntityTypes.GoodsReceipt, receipt.Id, AuditActions.Create, null, new { receipt.GrnNumber, LineCount = receipt.Lines.Count });
@@ -307,14 +340,22 @@ public interface IStockTransferService
     Task<InventoryDocumentResponse> CreateAsync(CreateStockTransferRequest request, CancellationToken ct = default);
     Task<PagedResult<InventoryDocumentResponse>> ListAsync(InventoryDocFilter filter, CancellationToken ct = default);
     Task<InventoryDocumentResponse> GetAsync(Guid id, CancellationToken ct = default);
+    Task<InventoryDocumentResponse> ApproveAsync(Guid id, CancellationToken ct = default);
+    Task<InventoryDocumentResponse> DispatchAsync(Guid id, CancellationToken ct = default);
+    Task<InventoryDocumentResponse> ReceiveAsync(Guid id, CancellationToken ct = default);
 }
 
+/// <summary>
+/// Staged lifecycle: Requested (no stock impact) -> Approved -> Dispatched (deducts source stock,
+/// captures unit cost per line) -> Received (adds stock to destination at the captured cost).
+/// </summary>
 public sealed class StockTransferService : IStockTransferService
 {
     private readonly IStockTransferRepository _transfers;
     private readonly IWarehouseRepository _warehouses;
     private readonly IItemRepository _items;
     private readonly IStockLedger _ledger;
+    private readonly IProjectStatusAdvancer _statusAdvancer;
     private readonly ITenantContext _tenant;
     private readonly IUnitOfWork _uow;
     private readonly IAuditWriter _audit;
@@ -322,12 +363,14 @@ public sealed class StockTransferService : IStockTransferService
     private readonly IClock _clock;
 
     public StockTransferService(IStockTransferRepository transfers, IWarehouseRepository warehouses, IItemRepository items,
-        IStockLedger ledger, ITenantContext tenant, IUnitOfWork uow, IAuditWriter audit, IOutboxWriter outbox, IClock clock)
+        IStockLedger ledger, IProjectStatusAdvancer statusAdvancer, ITenantContext tenant, IUnitOfWork uow, IAuditWriter audit,
+        IOutboxWriter outbox, IClock clock)
     {
         _transfers = transfers;
         _warehouses = warehouses;
         _items = items;
         _ledger = ledger;
+        _statusAdvancer = statusAdvancer;
         _tenant = tenant;
         _uow = uow;
         _audit = audit;
@@ -338,7 +381,7 @@ public sealed class StockTransferService : IStockTransferService
     public async Task<InventoryDocumentResponse> CreateAsync(CreateStockTransferRequest request, CancellationToken ct = default)
     {
         var orgId = _tenant.OrganizationId;
-        if (!await _warehouses.ExistsAsync(orgId, request.FromWarehouseId, ct))
+        if (request.FromWarehouseId.HasValue && !await _warehouses.ExistsAsync(orgId, request.FromWarehouseId.Value, ct))
             throw new ConflictException("Source warehouse does not belong to the organization.");
         if (!await _warehouses.ExistsAsync(orgId, request.ToWarehouseId, ct))
             throw new ConflictException("Destination warehouse does not belong to the organization.");
@@ -358,28 +401,24 @@ public sealed class StockTransferService : IStockTransferService
             OrganizationId = orgId,
             TransferNumber = number,
             FromWarehouseId = request.FromWarehouseId,
+            SourceAddress = request.SourceAddress?.Trim(),
             ToWarehouseId = request.ToWarehouseId,
+            ProjectId = request.ProjectId,
+            MaterialRequirementId = request.MaterialRequirementId,
             TransportId = request.TransportId?.Trim(),
-            Status = "POSTED",
+            Status = TransferStatuses.Requested,
             TransferDate = request.TransferDate ?? DateOnly.FromDateTime(_clock.UtcNow),
             Notes = request.Notes,
+            RequestedBy = _tenant.UserId,
             CreatedAt = _clock.UtcNow,
             CreatedBy = _tenant.UserId
         };
 
-        decimal totalValue = 0;
         await _uow.ExecuteInTransactionAsync(async token =>
         {
             await _transfers.AddAsync(transfer, token);
-
             foreach (var line in request.Lines)
             {
-                var fromLevel = await _ledger.IssueAsync(line.ItemId, request.FromWarehouseId, line.Qty,
-                    MovementTypes.TransferOut, RefDocTypes.StockTransfer, transfer.Id, line.BatchId, null, token);
-
-                await _ledger.ReceiveAsync(line.ItemId, request.ToWarehouseId, line.Qty, fromLevel.AvgUnitCost,
-                    MovementTypes.TransferIn, RefDocTypes.StockTransfer, transfer.Id, line.BatchId, null, token);
-
                 transfer.Lines.Add(new StockTransferLine
                 {
                     Id = Guid.NewGuid(),
@@ -389,16 +428,13 @@ public sealed class StockTransferService : IStockTransferService
                     UomId = line.UomId,
                     BatchId = line.BatchId
                 });
-
-                totalValue += line.Qty * fromLevel.AvgUnitCost;
-                _outbox.Enqueue(new StockTransferred(line.ItemId, request.FromWarehouseId, request.ToWarehouseId, line.Qty) { OrganizationId = orgId });
             }
 
             _audit.Add(EntityTypes.StockTransfer, transfer.Id, AuditActions.Create, null, new { transfer.TransferNumber, LineCount = transfer.Lines.Count });
             await _uow.SaveChangesAsync(token);
         }, ct);
 
-        return ToDocument(transfer, totalValue);
+        return ToDocument(transfer, 0);
     }
 
     public async Task<PagedResult<InventoryDocumentResponse>> ListAsync(InventoryDocFilter filter, CancellationToken ct = default)
@@ -415,8 +451,98 @@ public sealed class StockTransferService : IStockTransferService
 
     public async Task<InventoryDocumentResponse> GetAsync(Guid id, CancellationToken ct = default)
     {
-        var t = await _transfers.GetAsync(_tenant.OrganizationId, id, ct) ?? throw NotFoundException.For("StockTransfer", id);
-        return ToDocument(t, 0);
+        var t = await _transfers.GetAsync(_tenant.OrganizationId, id, track: false, ct) ?? throw NotFoundException.For("StockTransfer", id);
+        return ToDocument(t, t.Lines.Sum(l => l.Qty * l.UnitCost));
+    }
+
+    public async Task<InventoryDocumentResponse> ApproveAsync(Guid id, CancellationToken ct = default)
+    {
+        var t = await RequireStatusAsync(id, TransferStatuses.Requested, ct);
+        t.Status = TransferStatuses.Approved;
+        t.ApprovedBy = _tenant.UserId;
+        t.ApprovedAt = _clock.UtcNow;
+        return await SaveStatusAsync(t, 0, ct);
+    }
+
+    public async Task<InventoryDocumentResponse> DispatchAsync(Guid id, CancellationToken ct = default)
+    {
+        var t = await RequireStatusAsync(id, TransferStatuses.Approved, ct);
+        decimal totalValue = 0;
+        await _uow.ExecuteInTransactionAsync(async token =>
+        {
+            foreach (var line in t.Lines)
+            {
+                if (t.FromWarehouseId.HasValue)
+                {
+                    var fromLevel = await _ledger.IssueAsync(line.ItemId, t.FromWarehouseId.Value, line.Qty,
+                        MovementTypes.TransferOut, RefDocTypes.StockTransfer, t.Id, line.BatchId, null, token);
+                    line.UnitCost = fromLevel.AvgUnitCost;
+                }
+                else
+                {
+                    // No internal warehouse to issue from (e.g. sourced directly from a supplier) — value at standard cost.
+                    var item = await _items.GetByIdAsync(t.OrganizationId, line.ItemId, track: false, token);
+                    line.UnitCost = item?.StandardCost ?? 0;
+                }
+                totalValue += line.Qty * line.UnitCost;
+            }
+
+            t.Status = TransferStatuses.Dispatched;
+            t.DispatchedBy = _tenant.UserId;
+            t.DispatchedAt = _clock.UtcNow;
+            t.UpdatedAt = _clock.UtcNow;
+            t.UpdatedBy = _tenant.UserId;
+            _audit.Add(EntityTypes.StockTransfer, t.Id, AuditActions.StatusChange, null, new { t.TransferNumber, t.Status });
+            await _statusAdvancer.AdvanceAsync(t.OrganizationId, t.ProjectId, "INVENTORY_CHECK", "SHIPMENT_IN_TRANSIT", token);
+            await _uow.SaveChangesAsync(token);
+        }, ct);
+
+        return ToDocument(t, totalValue);
+    }
+
+    public async Task<InventoryDocumentResponse> ReceiveAsync(Guid id, CancellationToken ct = default)
+    {
+        var orgId = _tenant.OrganizationId;
+        var t = await RequireStatusAsync(id, TransferStatuses.Dispatched, ct);
+        decimal totalValue = 0;
+        await _uow.ExecuteInTransactionAsync(async token =>
+        {
+            foreach (var line in t.Lines)
+            {
+                await _ledger.ReceiveAsync(line.ItemId, t.ToWarehouseId, line.Qty, line.UnitCost,
+                    MovementTypes.TransferIn, RefDocTypes.StockTransfer, t.Id, line.BatchId, null, token);
+                totalValue += line.Qty * line.UnitCost;
+                _outbox.Enqueue(new StockTransferred(line.ItemId, t.FromWarehouseId, t.ToWarehouseId, line.Qty) { OrganizationId = orgId });
+            }
+
+            t.Status = TransferStatuses.Received;
+            t.ReceivedBy = _tenant.UserId;
+            t.ReceivedAt = _clock.UtcNow;
+            t.UpdatedAt = _clock.UtcNow;
+            t.UpdatedBy = _tenant.UserId;
+            _audit.Add(EntityTypes.StockTransfer, t.Id, AuditActions.StatusChange, null, new { t.TransferNumber, t.Status });
+            await _statusAdvancer.AdvanceAsync(orgId, t.ProjectId, "SHIPMENT_IN_TRANSIT", "SHIPMENT_COMPLETED", token);
+            await _uow.SaveChangesAsync(token);
+        }, ct);
+
+        return ToDocument(t, totalValue);
+    }
+
+    private async Task<StockTransfer> RequireStatusAsync(Guid id, string requiredStatus, CancellationToken ct)
+    {
+        var t = await _transfers.GetAsync(_tenant.OrganizationId, id, track: true, ct) ?? throw NotFoundException.For("StockTransfer", id);
+        if (t.Status != requiredStatus)
+            throw new ConflictException($"Stock transfer must be in status '{requiredStatus}' (current status: {t.Status}).");
+        return t;
+    }
+
+    private async Task<InventoryDocumentResponse> SaveStatusAsync(StockTransfer t, decimal totalValue, CancellationToken ct)
+    {
+        t.UpdatedAt = _clock.UtcNow;
+        t.UpdatedBy = _tenant.UserId;
+        _audit.Add(EntityTypes.StockTransfer, t.Id, AuditActions.StatusChange, null, new { t.TransferNumber, t.Status });
+        await _uow.SaveChangesAsync(ct);
+        return ToDocument(t, totalValue);
     }
 
     private static InventoryDocumentResponse ToDocument(StockTransfer t, decimal totalValue) => new()
@@ -425,12 +551,24 @@ public sealed class StockTransferService : IStockTransferService
         Number = t.TransferNumber,
         DocumentType = RefDocTypes.StockTransfer,
         WarehouseId = t.FromWarehouseId,
+        SourceAddress = t.SourceAddress,
+        ToWarehouseId = t.ToWarehouseId,
+        ProjectId = t.ProjectId,
+        MaterialRequirementId = t.MaterialRequirementId,
         Status = t.Status,
         DocumentDate = t.TransferDate,
         Reference = t.TransportId,
         LineCount = t.Lines.Count,
         TotalValue = totalValue,
-        CreatedAt = t.CreatedAt
+        CreatedAt = t.CreatedAt,
+        Lines = t.Lines.Select(l => new InventoryDocumentLineResponse { ItemId = l.ItemId, Qty = l.Qty, UomId = l.UomId }).ToList(),
+        RequestedBy = t.RequestedBy,
+        ApprovedBy = t.ApprovedBy,
+        ApprovedAt = t.ApprovedAt,
+        DispatchedBy = t.DispatchedBy,
+        DispatchedAt = t.DispatchedAt,
+        ReceivedBy = t.ReceivedBy,
+        ReceivedAt = t.ReceivedAt
     };
 }
 

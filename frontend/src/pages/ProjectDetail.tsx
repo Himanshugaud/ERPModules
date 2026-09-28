@@ -1,8 +1,8 @@
 import { Fragment, useEffect, useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { api, ApiError, type Project, type Task, type Lookup, type UserItem, type Client } from "../api/client";
+import { api, ApiError, type Project, type Task, type Lookup, type UserItem, type Client, type MaterialRequirement, type InventoryDocument } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
-import { statusBadge, formatDate, initials } from "../lib/ui";
+import { statusBadge, formatDate, formatDateTime, initials } from "../lib/ui";
 
 type ModalMode = "create" | "edit" | "subtask";
 
@@ -18,6 +18,8 @@ export default function ProjectDetail() {
   const [taskPriorities, setTaskPriorities] = useState<Lookup[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
   const [users, setUsers] = useState<UserItem[]>([]);
+  const [requirements, setRequirements] = useState<MaterialRequirement[]>([]);
+  const [transfers, setTransfers] = useState<InventoryDocument[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [modal, setModal] = useState<{ mode: ModalMode; task?: Task; parentId?: string } | null>(null);
@@ -60,6 +62,8 @@ export default function ProjectDetail() {
         setTaskPriorities(tp);
         setClients(cl);
         api.users().then(setUsers).catch(() => setUsers([]));
+        api.materialRequirements({ projectId, pageSize: 100 }).then((r) => setRequirements(r.data)).catch(() => setRequirements([]));
+        api.stockTransfers({ projectId, pageSize: 100 }).then((r) => setTransfers(r.data)).catch(() => setTransfers([]));
       } catch (err) {
         setError(err instanceof ApiError ? err.message : "Unable to load project.");
       } finally {
@@ -109,6 +113,24 @@ export default function ProjectDetail() {
   const pct = Math.round(Number(project.completionPercentage));
   const parents = tasks.filter((t) => !t.parentTaskId);
   const childrenOf = (id: string) => tasks.filter((t) => t.parentTaskId === id);
+
+  const personName = (id?: string) => (id ? userMap[id]?.displayName ?? userMap[id]?.email ?? "—" : undefined);
+
+  type TimelineEvent = { at: string; phase: string; label: string; by?: string };
+  const events: TimelineEvent[] = [];
+  if (project.createdAt) events.push({ at: project.createdAt, phase: "Requirement", label: "Project created" });
+  for (const r of requirements) {
+    events.push({ at: r.createdAt, phase: "Planning", label: `Materials estimate ${r.reqNumber} submitted`, by: personName(r.requestedBy) });
+    if (r.approvedAt) events.push({ at: r.approvedAt, phase: "Inventory", label: `Materials estimate ${r.reqNumber} approved`, by: personName(r.approvedBy) });
+    if (r.rejectedAt) events.push({ at: r.rejectedAt, phase: "Inventory", label: `Materials estimate ${r.reqNumber} rejected${r.rejectionReason ? `: ${r.rejectionReason}` : ""}`, by: personName(r.rejectedBy) });
+  }
+  for (const t of transfers) {
+    events.push({ at: t.createdAt, phase: "Inventory", label: `Shipment ${t.number} arranged`, by: personName(t.requestedBy) });
+    if (t.approvedAt) events.push({ at: t.approvedAt, phase: "Inventory", label: `Shipment ${t.number} approved`, by: personName(t.approvedBy) });
+    if (t.dispatchedAt) events.push({ at: t.dispatchedAt, phase: "Shipment", label: `Shipment ${t.number} dispatched`, by: personName(t.dispatchedBy) });
+    if (t.receivedAt) events.push({ at: t.receivedAt, phase: "Shipment", label: `Shipment ${t.number} delivered`, by: personName(t.receivedBy) });
+  }
+  events.sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime());
 
   const meta: { label: string; value: string }[] = [
     { label: "Client", value: clientMap[project.clientId ?? ""]?.name ?? "—" },
@@ -192,6 +214,30 @@ export default function ProjectDetail() {
               <div className="meta-label">Description</div>
               <div style={{ marginTop: 4 }}>{project.description}</div>
             </div>
+          )}
+        </div>
+      </div>
+
+      <div className="card" style={{ marginTop: 18 }}>
+        <div className="card-pad" style={{ borderBottom: "1px solid var(--border)" }}>
+          <strong>Activity Timeline</strong><span className="muted" style={{ marginLeft: 8 }}>({events.length})</span>
+          <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>Requirement → Planning → Inventory → Shipment</div>
+        </div>
+        <div className="card-pad">
+          {events.length === 0 ? (
+            <div className="empty">No activity recorded yet for this project.</div>
+          ) : (
+            <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
+              {events.map((e, i) => (
+                <li key={i} style={{ display: "flex", gap: 12, padding: "8px 0", borderBottom: i < events.length - 1 ? "1px solid var(--border)" : "none" }}>
+                  <span className="badge blue" style={{ minWidth: 82, textAlign: "center" }}>{e.phase}</span>
+                  <div style={{ flex: 1 }}>
+                    <div>{e.label}{e.by ? <span className="muted"> · by {e.by}</span> : null}</div>
+                    <div className="muted" style={{ fontSize: 12 }}>{formatDateTime(e.at)}</div>
+                  </div>
+                </li>
+              ))}
+            </ul>
           )}
         </div>
       </div>

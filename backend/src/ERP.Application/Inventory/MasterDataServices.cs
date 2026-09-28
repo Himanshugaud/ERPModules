@@ -61,7 +61,6 @@ public sealed class ItemService : IItemService
             TrackBatches = request.TrackBatches,
             TrackSerials = request.TrackSerials,
             TrackExpiry = request.TrackExpiry,
-            ValuationMethod = string.IsNullOrEmpty(request.ValuationMethod) ? ValuationMethods.WeightedAverage : request.ValuationMethod,
             StandardCost = request.StandardCost,
             ReorderLevel = request.ReorderLevel,
             SafetyStock = request.SafetyStock,
@@ -124,7 +123,6 @@ public sealed class ItemService : IItemService
         item.TrackBatches = request.TrackBatches;
         item.TrackSerials = request.TrackSerials;
         item.TrackExpiry = request.TrackExpiry;
-        if (!string.IsNullOrEmpty(request.ValuationMethod)) item.ValuationMethod = request.ValuationMethod;
         item.StandardCost = request.StandardCost;
         item.ReorderLevel = request.ReorderLevel;
         item.SafetyStock = request.SafetyStock;
@@ -183,7 +181,6 @@ public sealed class ItemService : IItemService
         TrackBatches = i.TrackBatches,
         TrackSerials = i.TrackSerials,
         TrackExpiry = i.TrackExpiry,
-        ValuationMethod = i.ValuationMethod,
         StandardCost = i.StandardCost,
         ReorderLevel = i.ReorderLevel,
         SafetyStock = i.SafetyStock,

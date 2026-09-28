@@ -6,7 +6,7 @@ type AuthUser = LoginResponse["user"];
 interface AuthState {
   user: AuthUser | null;
   isAuthenticated: boolean;
-  login: (organizationCode: string, email: string) => Promise<void>;
+  login: (organizationCode: string, email: string, password?: string) => Promise<void>;
   logout: () => void;
 }
 
@@ -24,16 +24,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // If token is gone but user cached, clear.
     if (!getToken()) setUser(null);
     // Already signed in on reload: warm the cache so pages load instantly.
-    else prefetchReferenceData();
+    else prefetchReferenceData(user?.permissions);
   }, []);
 
-  async function login(organizationCode: string, email: string) {
-    const res = await api.login(organizationCode, email);
+  async function login(organizationCode: string, email: string, password?: string) {
+    const res = await api.login(organizationCode, email, password);
     clearRefCache(); // drop any cached reference data from a previous session/org
     setToken(res.accessToken);
     localStorage.setItem(USER_KEY, JSON.stringify(res.user));
     setUser(res.user);
-    prefetchReferenceData(); // preload lookups so the first page doesn't fetch them
+    prefetchReferenceData(res.user.permissions); // preload only lookups the user may access
   }
 
   function logout() {

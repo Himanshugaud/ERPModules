@@ -1,13 +1,15 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { api, ApiError, type UserItem, type Lookup } from "../api/client";
+import { api, ApiError, type UserItem, type Lookup, type Role, type Permission } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { initials } from "../lib/ui";
 
-const EMPLOYEE_MANAGER_ROLES = ["CEO", "HR Manager"];
+const EMPLOYEE_MANAGER_ROLES = ["SUPER_ADMIN", "Administrator", "Employee Manager"];
+const ACCESS_MANAGER_ROLES = ["SUPER_ADMIN", "Administrator"];
 
 export default function Employees() {
   const { user } = useAuth();
   const canManage = (user?.roles ?? []).some((r) => EMPLOYEE_MANAGER_ROLES.includes(r));
+  const canManageAccess = (user?.roles ?? []).some((r) => ACCESS_MANAGER_ROLES.includes(r));
   const [users, setUsers] = useState<UserItem[]>([]);
   const [departments, setDepartments] = useState<Lookup[]>([]);
   const [loading, setLoading] = useState(true);
@@ -38,7 +40,7 @@ export default function Employees() {
   const filtered = users.filter((u) => {
     const q = search.trim().toLowerCase();
     if (!q) return true;
-    return (u.displayName ?? "").toLowerCase().includes(q) || u.email.toLowerCase().includes(q) || (u.jobTitle ?? "").toLowerCase().includes(q);
+    return (u.displayName ?? "").toLowerCase().includes(q) || u.email.toLowerCase().includes(q) || (u.username ?? "").toLowerCase().includes(q) || (u.jobTitle ?? "").toLowerCase().includes(q);
   });
 
   return (
@@ -62,15 +64,15 @@ export default function Employees() {
       <div className="table-wrap">
         <table>
           <thead>
-            <tr><th>Name</th><th>Email</th><th>Job Title</th><th>Department</th><th>Status</th><th></th></tr>
+            <tr><th>Name</th><th>Email</th><th>Username</th><th>Job Title</th><th>Department</th><th>Status</th><th></th></tr>
           </thead>
           <tbody>
             {loading ? (
               [...Array(4)].map((_, i) => (
-                <tr key={i}>{[...Array(6)].map((__, j) => <td key={j}><div className="skeleton" style={{ height: 14, width: j === 0 ? 160 : 90 }} /></td>)}</tr>
+                <tr key={i}>{[...Array(7)].map((__, j) => <td key={j}><div className="skeleton" style={{ height: 14, width: j === 0 ? 160 : 90 }} /></td>)}</tr>
               ))
             ) : filtered.length === 0 ? (
-              <tr><td colSpan={6}><div className="empty">No employees found.</div></td></tr>
+              <tr><td colSpan={7}><div className="empty">No employees found.</div></td></tr>
             ) : (
               filtered.map((u) => (
                 <tr key={u.id} className="clickable" onClick={() => setProfile(u)}>
@@ -78,6 +80,7 @@ export default function Employees() {
                     <span className="person"><span className="avatar">{initials(u.displayName ?? u.email)}</span>{u.displayName ?? "—"}</span>
                   </td>
                   <td>{u.email}</td>
+                  <td>{u.username ?? "—"}</td>
                   <td>{u.jobTitle ?? "—"}</td>
                   <td>{u.departmentId ? (deptMap[u.departmentId] ?? "—") : "—"}</td>
                   <td><span className={`badge ${u.status === "ACTIVE" || !u.status ? "green" : "gray"}`}>{u.status ?? "ACTIVE"}</span></td>
@@ -108,12 +111,14 @@ export default function Employees() {
               </div>
               <div className="meta-grid">
                 <div className="meta-item"><div className="meta-label">Email</div><div className="meta-value">{profile.email}</div></div>
+                <div className="meta-item"><div className="meta-label">Username</div><div className="meta-value">{profile.username ?? "—"}</div></div>
                 <div className="meta-item"><div className="meta-label">Phone</div><div className="meta-value">{profile.phone ?? "—"}</div></div>
                 <div className="meta-item"><div className="meta-label">Department</div><div className="meta-value">{profile.departmentId ? (deptMap[profile.departmentId] ?? "—") : "—"}</div></div>
                 <div className="meta-item"><div className="meta-label">Status</div><div className="meta-value">{profile.status ?? "ACTIVE"}</div></div>
                 <div className="meta-item"><div className="meta-label">First Name</div><div className="meta-value">{profile.firstName ?? "—"}</div></div>
                 <div className="meta-item"><div className="meta-label">Last Name</div><div className="meta-value">{profile.lastName ?? "—"}</div></div>
               </div>
+              {canManageAccess && <EmployeeAccess userId={profile.id} />}
             </div>
             <div className="modal-foot">
               <button className="btn" onClick={() => setProfile(null)}>Close</button>
@@ -136,11 +141,139 @@ export default function Employees() {
   );
 }
 
+function EmployeeAccess({ userId }: { userId: string }) {
+  const [roles, setRoles] = useState<Role[]>([]);
+  const [assigned, setAssigned] = useState<Set<string>>(new Set());
+  const [permissions, setPermissions] = useState<Permission[]>([]);
+  const [permissionsLoading, setPermissionsLoading] = useState(false);
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busyRole, setBusyRole] = useState<string | null>(null);
+  const [savingPassword, setSavingPassword] = useState(false);
+
+  useEffect(() => {
+    Promise.all([api.roles(), api.userRoles(userId)])
+      .then(([available, current]) => {
+        setRoles(available.filter((role) => role.isActive));
+        setAssigned(new Set(current.map((role) => role.id)));
+      })
+      .catch((err) => setError(err instanceof ApiError ? err.message : "Unable to load roles."));
+  }, [userId]);
+
+  useEffect(() => {
+    if (assigned.size === 0) {
+      setPermissions([]);
+      return;
+    }
+    setPermissionsLoading(true);
+    Promise.all([...assigned].map((roleId) => api.rolePermissions(roleId).catch(() => [] as Permission[])))
+      .then((lists) => {
+        const merged = new Map<string, Permission>();
+        lists.flat().forEach((p) => merged.set(p.code, p));
+        setPermissions([...merged.values()].sort((a, b) => a.code.localeCompare(b.code)));
+      })
+      .finally(() => setPermissionsLoading(false));
+  }, [assigned]);
+
+  async function toggleRole(roleId: string, checked: boolean) {
+    setError(null);
+    setMessage(null);
+    setBusyRole(roleId);
+    try {
+      if (checked) await api.assignUserRole(userId, roleId);
+      else await api.removeUserRole(userId, roleId);
+      setAssigned((current) => {
+        const next = new Set(current);
+        checked ? next.add(roleId) : next.delete(roleId);
+        return next;
+      });
+      setMessage("Roles updated. The employee must sign in again to refresh access.");
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Unable to update role.");
+    } finally {
+      setBusyRole(null);
+    }
+  }
+
+  async function savePassword(e: FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setMessage(null);
+    if (password !== confirmPassword) {
+      setError("Passwords do not match.");
+      return;
+    }
+    setSavingPassword(true);
+    try {
+      await api.setUserPassword(userId, password);
+      setPassword("");
+      setConfirmPassword("");
+      setMessage("Password updated.");
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Unable to update password.");
+    } finally {
+      setSavingPassword(false);
+    }
+  }
+
+  return (
+    <div style={{ marginTop: 20, borderTop: "1px solid var(--border)", paddingTop: 16 }}>
+      <h4 style={{ margin: "0 0 10px" }}>Access and security</h4>
+      {error && <div className="form-error">{error}</div>}
+      {message && <div className="badge green" style={{ marginBottom: 10 }}>{message}</div>}
+      <div className="field">
+        <label>Assigned roles</label>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 8 }}>
+          {roles.map((role) => (
+            <label key={role.id} style={{ display: "flex", gap: 8, alignItems: "center" }} title={role.description}>
+              <input
+                type="checkbox"
+                checked={assigned.has(role.id)}
+                disabled={busyRole === role.id}
+                onChange={(event) => void toggleRole(role.id, event.target.checked)}
+              />
+              {role.name}
+            </label>
+          ))}
+        </div>
+      </div>
+      <div className="field">
+        <label>Effective permissions {permissionsLoading && <span className="spinner" style={{ marginLeft: 6 }} />}</label>
+        {permissions.length === 0 ? (
+          <div className="muted">No permissions from assigned roles.</div>
+        ) : (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+            {permissions.map((p) => (
+              <span key={p.code} className="badge blue" title={p.name}>{p.code}</span>
+            ))}
+          </div>
+        )}
+      </div>
+      <form onSubmit={savePassword}>
+        <div className="row2">
+          <div className="field">
+            <label>New password</label>
+            <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} minLength={10} required autoComplete="new-password" />
+          </div>
+          <div className="field">
+            <label>Confirm password</label>
+            <input type="password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} minLength={10} required autoComplete="new-password" />
+          </div>
+        </div>
+        <button className="btn" disabled={savingPassword}>{savingPassword ? <span className="spinner" /> : "Set Password"}</button>
+      </form>
+    </div>
+  );
+}
+
 function EmployeeModal(props: { mode: "create" | "edit"; user?: UserItem; departments: Lookup[]; onClose: () => void; onSaved: () => void }) {
   const editing = props.mode === "edit";
   const u = props.user;
   const [form, setForm] = useState<Record<string, string>>({
     email: u?.email ?? "",
+    username: u?.username ?? "",
     firstName: u?.firstName ?? "",
     lastName: u?.lastName ?? "",
     displayName: u?.displayName ?? "",
@@ -160,6 +293,7 @@ function EmployeeModal(props: { mode: "create" | "edit"; user?: UserItem; depart
     try {
       if (editing && u) {
         await api.updateUser(u.id, {
+          username: form.username || undefined,
           firstName: form.firstName || undefined,
           lastName: form.lastName || undefined,
           displayName: form.displayName || undefined,
@@ -171,6 +305,7 @@ function EmployeeModal(props: { mode: "create" | "edit"; user?: UserItem; depart
       } else {
         await api.createUser({
           email: form.email.trim(),
+          username: form.username.trim(),
           firstName: form.firstName || undefined,
           lastName: form.lastName || undefined,
           displayName: form.displayName || undefined,
@@ -199,6 +334,10 @@ function EmployeeModal(props: { mode: "create" | "edit"; user?: UserItem; depart
           <div className="field">
             <label>Email *</label>
             <input type="email" value={form.email} onChange={(e) => set("email", e.target.value)} disabled={editing} required placeholder="person@company.com" />
+          </div>
+          <div className="field">
+            <label>Username *</label>
+            <input value={form.username} onChange={(e) => set("username", e.target.value)} required minLength={3} maxLength={50} pattern="[a-zA-Z0-9._-]+" placeholder="firstname.lastname" title="Letters, numbers, dots, underscores and hyphens only" />
           </div>
           <div className="row2">
             <div className="field">

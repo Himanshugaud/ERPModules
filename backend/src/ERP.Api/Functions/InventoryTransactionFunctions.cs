@@ -134,7 +134,9 @@ public sealed class StockTransfersFunctions
         {
             Page = Http.IntQuery(req, "page") ?? 1,
             PageSize = Http.IntQuery(req, "pageSize") ?? 25,
-            WarehouseId = Http.GuidQuery(req, "warehouseId")
+            WarehouseId = Http.GuidQuery(req, "warehouseId"),
+            ProjectId = Http.GuidQuery(req, "projectId"),
+            MaterialRequirementId = Http.GuidQuery(req, "materialRequirementId")
         };
         return Http.Paged(await _service.ListAsync(filter, ct));
     }
@@ -145,6 +147,30 @@ public sealed class StockTransfersFunctions
     {
         _auth.Require(Permissions.TransferRead);
         return Http.Ok(await _service.GetAsync(id, ct));
+    }
+
+    [Function("ApproveStockTransfer")]
+    public async Task<IActionResult> Approve(
+        [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "v1/stock-transfers/{id:guid}/approve")] HttpRequest req, Guid id, CancellationToken ct)
+    {
+        _auth.Require(Permissions.TransferApprove);
+        return Http.Ok(await _service.ApproveAsync(id, ct));
+    }
+
+    [Function("DispatchStockTransfer")]
+    public async Task<IActionResult> Dispatch(
+        [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "v1/stock-transfers/{id:guid}/dispatch")] HttpRequest req, Guid id, CancellationToken ct)
+    {
+        _auth.Require(Permissions.TransferDispatch);
+        return Http.Ok(await _service.DispatchAsync(id, ct));
+    }
+
+    [Function("ReceiveStockTransfer")]
+    public async Task<IActionResult> Receive(
+        [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "v1/stock-transfers/{id:guid}/receive")] HttpRequest req, Guid id, CancellationToken ct)
+    {
+        _auth.Require(Permissions.TransferReceive);
+        return Http.Ok(await _service.ReceiveAsync(id, ct));
     }
 }
 

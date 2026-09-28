@@ -23,6 +23,7 @@ public sealed class UnitOfMeasureConfiguration : IEntityTypeConfiguration<UnitOf
         b.HasKey(x => x.Id);
         b.Property(x => x.Code).HasMaxLength(20);
         b.Property(x => x.Name).HasMaxLength(100);
+        b.Property(x => x.UomType).HasMaxLength(20);
     }
 }
 
@@ -35,7 +36,6 @@ public sealed class ItemConfiguration : IEntityTypeConfiguration<Item>
         b.Property(x => x.Code).HasMaxLength(50);
         b.Property(x => x.Name).HasMaxLength(200);
         b.Property(x => x.ItemType).HasMaxLength(30);
-        b.Property(x => x.ValuationMethod).HasMaxLength(20);
         b.Property(x => x.StandardCost).HasColumnType("decimal(19,4)");
         b.Property(x => x.ReorderLevel).HasColumnType("decimal(19,4)");
         b.Property(x => x.SafetyStock).HasColumnType("decimal(19,4)");
@@ -106,6 +106,7 @@ public sealed class StockMovementConfiguration : IEntityTypeConfiguration<StockM
         b.Property(x => x.Qty).HasColumnType("decimal(19,4)");
         b.Property(x => x.UnitCost).HasColumnType("decimal(19,4)");
         b.Property(x => x.TotalCost).HasColumnType("decimal(19,4)");
+        b.Property(x => x.Remarks).HasMaxLength(500);
     }
 }
 
@@ -163,6 +164,7 @@ public sealed class StockTransferConfiguration : IEntityTypeConfiguration<StockT
         b.HasKey(x => x.Id);
         b.Property(x => x.TransferNumber).HasMaxLength(50);
         b.Property(x => x.TransportId).HasMaxLength(50);
+        b.Property(x => x.SourceAddress).HasMaxLength(300);
         b.HasMany(x => x.Lines).WithOne().HasForeignKey(l => l.StockTransferId);
     }
 }
@@ -174,6 +176,7 @@ public sealed class StockTransferLineConfiguration : IEntityTypeConfiguration<St
         b.ToTable("StockTransferLines", "inventory");
         b.HasKey(x => x.Id);
         b.Property(x => x.Qty).HasColumnType("decimal(19,4)");
+        b.Property(x => x.UnitCost).HasColumnType("decimal(19,4)");
     }
 }
 

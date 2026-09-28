@@ -78,7 +78,7 @@ public sealed class InventoryLookupService : IInventoryLookupService
     public async Task<IReadOnlyList<UomResponse>> ListUomsAsync(CancellationToken ct = default)
     {
         var items = await _uoms.ListAsync(_tenant.OrganizationId, ct);
-        return items.Select(u => new UomResponse { Id = u.Id, Code = u.Code, Name = u.Name, IsBaseUnit = u.IsBaseUnit }).ToList();
+        return items.Select(u => new UomResponse { Id = u.Id, Code = u.Code, Name = u.Name, UomType = u.UomType, IsBaseUnit = u.IsBaseUnit }).ToList();
     }
 
     public async Task<PagedResult<StockLevelResponse>> ListStockAsync(StockLevelFilter filter, CancellationToken ct = default)
@@ -103,7 +103,7 @@ public sealed class InventoryLookupService : IInventoryLookupService
                 Id = m.Id, ItemId = m.ItemId, WarehouseId = m.WarehouseId, BatchId = m.BatchId,
                 MovementType = m.MovementType, Direction = m.Direction, Qty = m.Qty, UnitCost = m.UnitCost,
                 TotalCost = m.TotalCost, RefDocType = m.RefDocType, RefDocId = m.RefDocId, ProjectId = m.ProjectId,
-                OccurredAt = m.OccurredAt
+                Remarks = m.Remarks, OccurredAt = m.OccurredAt
             }).ToList(),
             TotalItems = result.TotalItems,
             Page = result.Page,

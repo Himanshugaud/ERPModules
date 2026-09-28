@@ -13,15 +13,6 @@ public static class ItemTypes
         { RawMaterial, FinishedGood, SemiFinished, Consumable, SparePart, ToolEquipment };
 }
 
-public static class ValuationMethods
-{
-    public const string WeightedAverage = "WEIGHTED_AVG";
-    public const string Fifo = "FIFO";
-    public const string Standard = "STANDARD";
-
-    public static readonly string[] All = { WeightedAverage, Fifo, Standard };
-}
-
 public static class WarehouseTypes
 {
     public const string MainStore = "MAIN_STORE";
@@ -35,17 +26,27 @@ public static class WarehouseTypes
 
 public static class MovementTypes
 {
-    public const string Receipt = "RECEIPT";
-    public const string Issue = "ISSUE";
+    public const string Receipt = "PURCHASE_RECEIPT";
+    public const string Issue = "MATERIAL_ISSUE";
     public const string TransferIn = "TRANSFER_IN";
     public const string TransferOut = "TRANSFER_OUT";
     public const string Adjustment = "ADJUSTMENT";
+    public const string MaterialReturn = "MATERIAL_RETURN";
     public const string ProductionIn = "PRODUCTION_IN";
     public const string Consumption = "CONSUMPTION";
     public const string ReturnIn = "RETURN_IN";
     public const string ReturnOut = "RETURN_OUT";
     public const string Scrap = "SCRAP";
     public const string OpeningBalance = "OPENING_BALANCE";
+}
+
+public static class TransferStatuses
+{
+    public const string Requested = "REQUESTED";
+    public const string Approved = "APPROVED";
+    public const string Dispatched = "DISPATCHED";
+    public const string Received = "RECEIVED";
+    public const string Cancelled = "CANCELLED";
 }
 
 public static class MovementDirection
@@ -61,6 +62,8 @@ public static class RefDocTypes
     public const string StockTransfer = "TRANSFER";
     public const string StockAdjustment = "ADJUSTMENT";
     public const string WorkOrder = "WORK_ORDER";
+    public const string PurchaseOrder = "PO";
+    public const string MaterialRequirement = "MREQ";
 }
 
 public static class WorkOrderStatuses

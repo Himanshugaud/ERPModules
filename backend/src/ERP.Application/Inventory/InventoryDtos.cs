@@ -13,7 +13,6 @@ public sealed class CreateItemRequest
     public bool TrackBatches { get; set; }
     public bool TrackSerials { get; set; }
     public bool TrackExpiry { get; set; }
-    public string? ValuationMethod { get; set; }
     public decimal? StandardCost { get; set; }
     public decimal? ReorderLevel { get; set; }
     public decimal? SafetyStock { get; set; }
@@ -36,7 +35,6 @@ public sealed class UpdateItemRequest
     public bool TrackBatches { get; set; }
     public bool TrackSerials { get; set; }
     public bool TrackExpiry { get; set; }
-    public string? ValuationMethod { get; set; }
     public decimal? StandardCost { get; set; }
     public decimal? ReorderLevel { get; set; }
     public decimal? SafetyStock { get; set; }
@@ -63,7 +61,6 @@ public sealed class ItemResponse
     public bool TrackBatches { get; set; }
     public bool TrackSerials { get; set; }
     public bool TrackExpiry { get; set; }
-    public string ValuationMethod { get; set; } = default!;
     public decimal? StandardCost { get; set; }
     public decimal? ReorderLevel { get; set; }
     public decimal? SafetyStock { get; set; }
@@ -164,6 +161,7 @@ public sealed class UomResponse
     public Guid Id { get; set; }
     public string Code { get; set; } = default!;
     public string Name { get; set; } = default!;
+    public string UomType { get; set; } = default!;
     public bool IsBaseUnit { get; set; }
 }
 
@@ -195,6 +193,7 @@ public sealed class StockMovementResponse
     public string? RefDocType { get; set; }
     public Guid? RefDocId { get; set; }
     public Guid? ProjectId { get; set; }
+    public string? Remarks { get; set; }
     public DateTime OccurredAt { get; set; }
 }
 
@@ -253,8 +252,11 @@ public sealed class StockTransferLineRequest
 public sealed class CreateStockTransferRequest
 {
     public string? TransferNumber { get; set; }
-    public Guid FromWarehouseId { get; set; }
+    public Guid? FromWarehouseId { get; set; }
+    public string? SourceAddress { get; set; }
     public Guid ToWarehouseId { get; set; }
+    public Guid? ProjectId { get; set; }
+    public Guid? MaterialRequirementId { get; set; }
     public string? TransportId { get; set; }
     public DateOnly? TransferDate { get; set; }
     public string? Notes { get; set; }
@@ -280,13 +282,23 @@ public sealed class CreateStockAdjustmentRequest
     public List<StockAdjustmentLineRequest> Lines { get; set; } = new();
 }
 
+public sealed class InventoryDocumentLineResponse
+{
+    public Guid ItemId { get; set; }
+    public decimal Qty { get; set; }
+    public Guid? UomId { get; set; }
+}
+
 public sealed class InventoryDocumentResponse
 {
     public Guid Id { get; set; }
     public string Number { get; set; } = default!;
     public string DocumentType { get; set; } = default!;
-    public Guid WarehouseId { get; set; }
+    public Guid? WarehouseId { get; set; }
+    public string? SourceAddress { get; set; }
+    public Guid? ToWarehouseId { get; set; }
     public Guid? ProjectId { get; set; }
+    public Guid? MaterialRequirementId { get; set; }
     public Guid? SupplierId { get; set; }
     public string Status { get; set; } = default!;
     public DateOnly? DocumentDate { get; set; }
@@ -294,4 +306,12 @@ public sealed class InventoryDocumentResponse
     public int LineCount { get; set; }
     public decimal TotalValue { get; set; }
     public DateTime CreatedAt { get; set; }
+    public List<InventoryDocumentLineResponse> Lines { get; set; } = new();
+    public Guid? RequestedBy { get; set; }
+    public Guid? ApprovedBy { get; set; }
+    public DateTime? ApprovedAt { get; set; }
+    public Guid? DispatchedBy { get; set; }
+    public DateTime? DispatchedAt { get; set; }
+    public Guid? ReceivedBy { get; set; }
+    public DateTime? ReceivedAt { get; set; }
 }

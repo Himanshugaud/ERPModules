@@ -114,6 +114,18 @@ BEGIN
 END
 GO
 
+IF COL_LENGTH(N'core.Users', N'PasswordHash') IS NULL
+    ALTER TABLE core.Users ADD PasswordHash NVARCHAR(500) NULL;
+GO
+
+IF COL_LENGTH(N'core.Users', N'Username') IS NULL
+    ALTER TABLE core.Users ADD Username NVARCHAR(100) NULL;
+GO
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'UQ_Users_Org_Username' AND object_id = OBJECT_ID(N'core.Users'))
+    CREATE UNIQUE INDEX UQ_Users_Org_Username ON core.Users (OrganizationId, Username) WHERE Username IS NOT NULL;
+GO
+
 IF OBJECT_ID(N'core.Roles', N'U') IS NULL
 BEGIN
     CREATE TABLE core.Roles
@@ -994,11 +1006,14 @@ BEGIN
     INSERT INTO project.ProjectStatuses (OrganizationId, Code, Name, DisplayOrder, IsDefault, IsFinal)
     SELECT @OrganizationId, v.Code, v.Name, v.DisplayOrder, v.IsDefault, v.IsFinal
     FROM (VALUES
-        (N'PLANNING',  N'Planning',   1, 1, 0),
-        (N'ACTIVE',    N'Active',     2, 0, 0),
-        (N'ON_HOLD',   N'On Hold',    3, 0, 0),
-        (N'COMPLETED', N'Completed',  4, 0, 1),
-        (N'CANCELLED', N'Cancelled',  5, 0, 1)
+        (N'PLANNING',             N'Planning',             1, 1, 0),
+        (N'INVENTORY_CHECK',      N'Inventory Check',      2, 0, 0),
+        (N'SHIPMENT_IN_TRANSIT',  N'Shipment In Transit',  3, 0, 0),
+        (N'SHIPMENT_COMPLETED',   N'Shipment Completed',   4, 0, 0),
+        (N'ACTIVE',               N'Active',               5, 0, 0),
+        (N'ON_HOLD',              N'On Hold',              6, 0, 0),
+        (N'COMPLETED',            N'Completed',            7, 0, 1),
+        (N'CANCELLED',            N'Cancelled',            8, 0, 1)
     ) AS v(Code, Name, DisplayOrder, IsDefault, IsFinal)
     WHERE NOT EXISTS (SELECT 1 FROM project.ProjectStatuses s WHERE s.OrganizationId = @OrganizationId AND s.Code = v.Code);
 

@@ -15,6 +15,7 @@ public static class ApplicationServiceCollectionExtensions
         services.AddValidatorsFromAssemblyContaining<CreateProjectRequestValidator>();
         services.AddScoped<IProjectService, ProjectService>();
         services.AddScoped<IProjectMemberService, ProjectMemberService>();
+        services.AddScoped<IProjectStatusAdvancer, ProjectStatusAdvancer>();
         services.AddScoped<ITaskService, TaskService>();
         services.AddScoped<IAuthService, AuthService>();
         services.AddScoped<IUserService, UserService>();
@@ -33,6 +34,10 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<IStockAdjustmentService, StockAdjustmentService>();
         services.AddScoped<IBomService, BomService>();
         services.AddScoped<IWorkOrderService, WorkOrderService>();
+
+        // Procurement
+        services.AddScoped<IMaterialRequirementService, MaterialRequirementService>();
+        services.AddScoped<IPurchaseOrderService, PurchaseOrderService>();
         return services;
     }
 }

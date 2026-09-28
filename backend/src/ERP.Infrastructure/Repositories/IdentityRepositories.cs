@@ -39,6 +39,10 @@ public sealed class UserRepository : IUserRepository
         _db.Users.AsNoTracking()
             .FirstOrDefaultAsync(u => u.OrganizationId == organizationId && u.Email == email, ct);
 
+    public Task<User?> GetByUsernameAsync(Guid organizationId, string username, CancellationToken ct = default) =>
+        _db.Users.AsNoTracking()
+            .FirstOrDefaultAsync(u => u.OrganizationId == organizationId && u.Username == username, ct);
+
     public async Task<PagedResult<User>> ListAsync(Guid organizationId, UserFilter filter, CancellationToken ct = default)
     {
         var q = _db.Users.AsNoTracking().Where(u => u.OrganizationId == organizationId);
@@ -63,6 +67,10 @@ public sealed class UserRepository : IUserRepository
 
     public Task<bool> EmailExistsAsync(Guid organizationId, string email, Guid? excludeId, CancellationToken ct = default) =>
         _db.Users.AnyAsync(u => u.OrganizationId == organizationId && u.Email == email
+            && (excludeId == null || u.Id != excludeId), ct);
+
+    public Task<bool> UsernameExistsAsync(Guid organizationId, string username, Guid? excludeId, CancellationToken ct = default) =>
+        _db.Users.AnyAsync(u => u.OrganizationId == organizationId && u.Username == username
             && (excludeId == null || u.Id != excludeId), ct);
 
     public async Task AddAsync(User user, CancellationToken ct = default) => await _db.Users.AddAsync(user, ct);

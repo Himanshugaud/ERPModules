@@ -21,7 +21,7 @@ public record StockIssued(Guid ItemId, Guid WarehouseId, decimal Qty, Guid? Proj
     public override Guid AggregateId => ItemId;
 }
 
-public record StockTransferred(Guid ItemId, Guid FromWarehouseId, Guid ToWarehouseId, decimal Qty) : IntegrationEvent
+public record StockTransferred(Guid ItemId, Guid? FromWarehouseId, Guid ToWarehouseId, decimal Qty) : IntegrationEvent
 {
     public override string EventType => "StockTransferred";
     public override string AggregateType => "Item";

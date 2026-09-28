@@ -65,6 +65,22 @@ public static class Permissions
     public const string WorkOrderComplete = "workorder.complete";
 
     public const string InventoryReportRead = "inventory.report.read";
+
+    // Procurement
+    public const string MaterialRequirementRead = "materialrequirement.read";
+    public const string MaterialRequirementCreate = "materialrequirement.create";
+    public const string MaterialRequirementApprove = "materialrequirement.approve";
+    public const string MaterialRequirementConvert = "materialrequirement.convert";
+
+    public const string PurchaseOrderRead = "purchaseorder.read";
+    public const string PurchaseOrderCreate = "purchaseorder.create";
+    public const string PurchaseOrderUpdate = "purchaseorder.update";
+    public const string PurchaseOrderApprove = "purchaseorder.approve";
+    public const string PurchaseOrderClose = "purchaseorder.close";
+
+    public const string TransferApprove = "transfer.approve";
+    public const string TransferDispatch = "transfer.dispatch";
+    public const string TransferReceive = "transfer.receive";
 }
 
 public static class EntityTypes
@@ -85,6 +101,8 @@ public static class EntityTypes
     public const string StockAdjustment = "STOCK_ADJUSTMENT";
     public const string Bom = "BOM";
     public const string WorkOrder = "WORK_ORDER";
+    public const string MaterialRequirement = "MATERIAL_REQUIREMENT";
+    public const string PurchaseOrder = "PURCHASE_ORDER";
 }
 
 public static class AuditActions
@@ -101,7 +119,7 @@ public static class AuditActions
 public static class SystemRoles
 {
     public const string SuperAdmin = "SUPER_ADMIN";
-    public const string Admin = "ADMIN";
+    public const string Admin = "Administrator";
     public const string ProjectManager = "PROJECT_MANAGER";
     public const string ProjectMember = "PROJECT_MEMBER";
     public const string Viewer = "VIEWER";

@@ -19,11 +19,14 @@ DECLARE @UserExec UNIQUEIDENTIFIER = '2A000000-0000-0000-0000-000000000202';
 DECLARE @UserMgr  UNIQUEIDENTIFIER = '2A000000-0000-0000-0000-000000000203';
 
 /* Project statuses */
-DECLARE @PS_Planning  UNIQUEIDENTIFIER = '2A000000-0000-0000-0000-000000000301';
-DECLARE @PS_Active    UNIQUEIDENTIFIER = '2A000000-0000-0000-0000-000000000302';
-DECLARE @PS_OnHold    UNIQUEIDENTIFIER = '2A000000-0000-0000-0000-000000000303';
-DECLARE @PS_Completed UNIQUEIDENTIFIER = '2A000000-0000-0000-0000-000000000304';
-DECLARE @PS_Cancelled UNIQUEIDENTIFIER = '2A000000-0000-0000-0000-000000000305';
+DECLARE @PS_Planning    UNIQUEIDENTIFIER = '2A000000-0000-0000-0000-000000000301';
+DECLARE @PS_Active      UNIQUEIDENTIFIER = '2A000000-0000-0000-0000-000000000302';
+DECLARE @PS_OnHold      UNIQUEIDENTIFIER = '2A000000-0000-0000-0000-000000000303';
+DECLARE @PS_Completed   UNIQUEIDENTIFIER = '2A000000-0000-0000-0000-000000000304';
+DECLARE @PS_Cancelled   UNIQUEIDENTIFIER = '2A000000-0000-0000-0000-000000000305';
+DECLARE @PS_InvCheck    UNIQUEIDENTIFIER = '2A000000-0000-0000-0000-000000000306';
+DECLARE @PS_ShipTransit UNIQUEIDENTIFIER = '2A000000-0000-0000-0000-000000000307';
+DECLARE @PS_ShipDone    UNIQUEIDENTIFIER = '2A000000-0000-0000-0000-000000000308';
 
 /* Task statuses */
 DECLARE @TS_Todo      UNIQUEIDENTIFIER = '2A000000-0000-0000-0000-000000000311';
@@ -117,11 +120,14 @@ INSERT INTO core.UserRoles (UserId, RoleId) VALUES
    Lookups: statuses & priorities
    ------------------------------------------------------------------------ */
 INSERT INTO project.ProjectStatuses (Id, OrganizationId, Code, Name, DisplayOrder, IsDefault, IsFinal) VALUES
-    (@PS_Planning,  @Org, N'PLANNING',  N'Planning',  1, 1, 0),
-    (@PS_Active,    @Org, N'ACTIVE',    N'Active',    2, 0, 0),
-    (@PS_OnHold,    @Org, N'ON_HOLD',   N'On Hold',   3, 0, 0),
-    (@PS_Completed, @Org, N'COMPLETED', N'Completed', 4, 0, 1),
-    (@PS_Cancelled, @Org, N'CANCELLED', N'Cancelled', 5, 0, 1);
+    (@PS_Planning,    @Org, N'PLANNING',            N'Planning',             1, 1, 0),
+    (@PS_InvCheck,    @Org, N'INVENTORY_CHECK',      N'Inventory Check',      2, 0, 0),
+    (@PS_ShipTransit, @Org, N'SHIPMENT_IN_TRANSIT',  N'Shipment In Transit',  3, 0, 0),
+    (@PS_ShipDone,    @Org, N'SHIPMENT_COMPLETED',   N'Shipment Completed',   4, 0, 0),
+    (@PS_Active,      @Org, N'ACTIVE',               N'Active',               5, 0, 0),
+    (@PS_OnHold,      @Org, N'ON_HOLD',              N'On Hold',              6, 0, 0),
+    (@PS_Completed,   @Org, N'COMPLETED',            N'Completed',            7, 0, 1),
+    (@PS_Cancelled,   @Org, N'CANCELLED',            N'Cancelled',            8, 0, 1);
 
 INSERT INTO project.TaskStatuses (Id, OrganizationId, Code, Name, DisplayOrder, IsFinal) VALUES
     (@TS_Todo,      @Org, N'TODO',        N'To Do',       1, 0),

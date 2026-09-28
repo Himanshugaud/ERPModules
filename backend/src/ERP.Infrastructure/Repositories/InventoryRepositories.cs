@@ -274,14 +274,18 @@ public sealed class StockTransferRepository : IStockTransferRepository
     private readonly ErpDbContext _db;
     public StockTransferRepository(ErpDbContext db) => _db = db;
 
-    public Task<StockTransfer?> GetAsync(Guid organizationId, Guid id, CancellationToken ct = default) =>
-        _db.StockTransfers.AsNoTracking().Include(t => t.Lines)
-            .FirstOrDefaultAsync(t => t.OrganizationId == organizationId && t.Id == id, ct);
+    public Task<StockTransfer?> GetAsync(Guid organizationId, Guid id, bool track, CancellationToken ct = default)
+    {
+        var q = track ? _db.StockTransfers.Include(t => t.Lines) : _db.StockTransfers.AsNoTracking().Include(t => t.Lines);
+        return q.FirstOrDefaultAsync(t => t.OrganizationId == organizationId && t.Id == id, ct);
+    }
 
     public async Task<PagedResult<StockTransfer>> ListAsync(Guid organizationId, InventoryDocFilter filter, CancellationToken ct = default)
     {
-        var q = _db.StockTransfers.AsNoTracking().Where(t => t.OrganizationId == organizationId);
+        var q = _db.StockTransfers.AsNoTracking().Include(t => t.Lines).Where(t => t.OrganizationId == organizationId);
         if (filter.WarehouseId.HasValue) q = q.Where(t => t.FromWarehouseId == filter.WarehouseId || t.ToWarehouseId == filter.WarehouseId);
+        if (filter.ProjectId.HasValue) q = q.Where(t => t.ProjectId == filter.ProjectId);
+        if (filter.MaterialRequirementId.HasValue) q = q.Where(t => t.MaterialRequirementId == filter.MaterialRequirementId);
         var total = await q.LongCountAsync(ct);
         var items = await q.OrderByDescending(t => t.CreatedAt).Skip(filter.Skip).Take(filter.PageSize).ToListAsync(ct);
         return new PagedResult<StockTransfer> { Items = items, TotalItems = total, Page = filter.Page, PageSize = filter.PageSize };

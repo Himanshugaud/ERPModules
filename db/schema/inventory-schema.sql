@@ -41,11 +41,13 @@ BEGIN
         OrganizationId UNIQUEIDENTIFIER NOT NULL,
         Code           NVARCHAR(20)     NOT NULL,
         Name           NVARCHAR(100)    NOT NULL,
+        UomType        NVARCHAR(20)     NOT NULL CONSTRAINT DF_Uom_UomType DEFAULT N'QUANTITY',
         IsBaseUnit     BIT              NOT NULL CONSTRAINT DF_Uom_IsBaseUnit DEFAULT 0,
         IsActive       BIT              NOT NULL CONSTRAINT DF_Uom_IsActive DEFAULT 1,
         CreatedAt      DATETIME2        NOT NULL CONSTRAINT DF_Uom_CreatedAt DEFAULT SYSUTCDATETIME(),
         UpdatedAt      DATETIME2        NULL,
-        CONSTRAINT UQ_Uom_Org_Code UNIQUE (OrganizationId, Code)
+        CONSTRAINT UQ_Uom_Org_Code UNIQUE (OrganizationId, Code),
+        CONSTRAINT CK_Uom_UomType CHECK (UomType IN (N'QUANTITY', N'WEIGHT', N'LENGTH', N'VOLUME'))
     );
 END
 GO
@@ -75,14 +77,13 @@ BEGIN
         Code            NVARCHAR(50)     NOT NULL,
         Name            NVARCHAR(200)    NOT NULL,
         Description     NVARCHAR(1000)   NULL,
-        ItemType        NVARCHAR(30)     NOT NULL,
+        ItemType        NVARCHAR(30)     NOT NULL CONSTRAINT DF_Items_ItemType DEFAULT N'FINISHED_GOOD',
         CategoryId      UNIQUEIDENTIFIER NULL,
         BaseUomId       UNIQUEIDENTIFIER NULL,
         Barcode         NVARCHAR(100)    NULL,
         TrackBatches    BIT              NOT NULL CONSTRAINT DF_Items_TrackBatches DEFAULT 0,
         TrackSerials    BIT              NOT NULL CONSTRAINT DF_Items_TrackSerials DEFAULT 0,
         TrackExpiry     BIT              NOT NULL CONSTRAINT DF_Items_TrackExpiry DEFAULT 0,
-        ValuationMethod NVARCHAR(20)     NOT NULL CONSTRAINT DF_Items_Valuation DEFAULT N'WEIGHTED_AVG',
         StandardCost    DECIMAL(19,4)    NULL,
         ReorderLevel    DECIMAL(19,4)    NULL,
         SafetyStock     DECIMAL(19,4)    NULL,
@@ -103,9 +104,19 @@ BEGIN
         RowVersion      ROWVERSION       NOT NULL,
         CONSTRAINT UQ_Items_Org_Code UNIQUE (OrganizationId, Code),
         CONSTRAINT CK_Items_ItemType CHECK (ItemType IN
-            (N'RAW_MATERIAL', N'FINISHED_GOOD', N'SEMI_FINISHED', N'CONSUMABLE', N'SPARE_PART', N'TOOL_EQUIPMENT')),
-        CONSTRAINT CK_Items_Valuation CHECK (ValuationMethod IN (N'WEIGHTED_AVG', N'FIFO', N'STANDARD'))
+            (N'RAW_MATERIAL', N'FINISHED_GOOD', N'SEMI_FINISHED', N'CONSUMABLE', N'SPARE_PART', N'TOOL_EQUIPMENT'))
     );
+END
+GO
+
+-- Unused decorative field; the stock ledger only implements weighted-average costing regardless of this value.
+IF COL_LENGTH(N'inventory.Items', N'ValuationMethod') IS NOT NULL
+BEGIN
+    DECLARE @valCk sysname = (SELECT name FROM sys.check_constraints WHERE parent_object_id = OBJECT_ID(N'inventory.Items') AND name = N'CK_Items_Valuation');
+    IF @valCk IS NOT NULL EXEC('ALTER TABLE inventory.Items DROP CONSTRAINT ' + @valCk);
+    DECLARE @valDf sysname = (SELECT d.name FROM sys.default_constraints d JOIN sys.columns c ON d.parent_object_id = c.object_id AND d.parent_column_id = c.column_id WHERE d.parent_object_id = OBJECT_ID(N'inventory.Items') AND c.name = N'ValuationMethod');
+    IF @valDf IS NOT NULL EXEC('ALTER TABLE inventory.Items DROP CONSTRAINT ' + @valDf);
+    ALTER TABLE inventory.Items DROP COLUMN ValuationMethod;
 END
 GO
 
@@ -238,6 +249,7 @@ BEGIN
         BatchId        UNIQUEIDENTIFIER NULL,
         QtyOnHand      DECIMAL(19,4)    NOT NULL CONSTRAINT DF_StockLevels_OnHand DEFAULT 0,
         QtyReserved    DECIMAL(19,4)    NOT NULL CONSTRAINT DF_StockLevels_Reserved DEFAULT 0,
+        QtyAvailable   AS (QtyOnHand - QtyReserved) PERSISTED,
         QtyInTransit   DECIMAL(19,4)    NOT NULL CONSTRAINT DF_StockLevels_InTransit DEFAULT 0,
         AvgUnitCost    DECIMAL(19,4)    NOT NULL CONSTRAINT DF_StockLevels_AvgCost DEFAULT 0,
         UpdatedAt      DATETIME2        NULL,
@@ -267,6 +279,7 @@ BEGIN
         RefDocId       UNIQUEIDENTIFIER NULL,
         RefDocLineId   UNIQUEIDENTIFIER NULL,
         ProjectId      UNIQUEIDENTIFIER NULL,
+        Remarks        NVARCHAR(500)    NULL,
         OccurredAt     DATETIME2        NOT NULL CONSTRAINT DF_StockMovements_OccurredAt DEFAULT SYSUTCDATETIME(),
         CreatedBy      UNIQUEIDENTIFIER NULL,
         CONSTRAINT CK_StockMovements_Direction CHECK (Direction IN (N'IN', N'OUT')),
@@ -441,7 +454,8 @@ BEGIN
         Id              UNIQUEIDENTIFIER NOT NULL CONSTRAINT PK_StockTransfers PRIMARY KEY DEFAULT NEWSEQUENTIALID(),
         OrganizationId  UNIQUEIDENTIFIER NOT NULL,
         TransferNumber  NVARCHAR(50)     NOT NULL,
-        FromWarehouseId UNIQUEIDENTIFIER NOT NULL,
+        FromWarehouseId UNIQUEIDENTIFIER NULL,
+        SourceAddress   NVARCHAR(300)    NULL,
         ToWarehouseId   UNIQUEIDENTIFIER NOT NULL,
         TransportId     NVARCHAR(50)     NULL,
         Status          NVARCHAR(30)     NOT NULL CONSTRAINT DF_StockTransfers_Status DEFAULT N'POSTED',
@@ -812,6 +826,46 @@ IF COL_LENGTH(N'inventory.StockTransfers', N'TransportId') IS NULL
     ALTER TABLE inventory.StockTransfers ADD TransportId NVARCHAR(50) NULL;
 GO
 
+-- Free-text source (e.g. a supplier's address) so a transfer isn't locked to a preset warehouse dropdown.
+IF COL_LENGTH(N'inventory.StockTransfers', N'SourceAddress') IS NULL
+    ALTER TABLE inventory.StockTransfers ADD SourceAddress NVARCHAR(300) NULL;
+GO
+
+IF EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID(N'inventory.StockTransfers') AND name = N'FromWarehouseId' AND is_nullable = 0)
+BEGIN
+    DECLARE @ckName sysname = (SELECT cc.name FROM sys.check_constraints cc WHERE cc.parent_object_id = OBJECT_ID(N'inventory.StockTransfers') AND cc.name = N'CK_StockTransfers_Warehouses');
+    IF @ckName IS NOT NULL EXEC('ALTER TABLE inventory.StockTransfers DROP CONSTRAINT ' + @ckName);
+    ALTER TABLE inventory.StockTransfers ALTER COLUMN FromWarehouseId UNIQUEIDENTIFIER NULL;
+    ALTER TABLE inventory.StockTransfers ADD CONSTRAINT CK_StockTransfers_Warehouses CHECK (FromWarehouseId <> ToWarehouseId);
+END
+GO
+
+-- UOM type classification (QUANTITY/WEIGHT/LENGTH/VOLUME).
+IF COL_LENGTH(N'inventory.UnitsOfMeasure', N'UomType') IS NULL
+BEGIN
+    ALTER TABLE inventory.UnitsOfMeasure ADD UomType NVARCHAR(20) NOT NULL CONSTRAINT DF_Uom_UomType DEFAULT N'QUANTITY';
+    ALTER TABLE inventory.UnitsOfMeasure ADD CONSTRAINT CK_Uom_UomType CHECK (UomType IN (N'QUANTITY', N'WEIGHT', N'LENGTH', N'VOLUME'));
+    UPDATE inventory.UnitsOfMeasure SET UomType = N'WEIGHT' WHERE Code IN (N'KG', N'TON');
+    UPDATE inventory.UnitsOfMeasure SET UomType = N'LENGTH' WHERE Code IN (N'M');
+    UPDATE inventory.UnitsOfMeasure SET UomType = N'VOLUME' WHERE Code IN (N'LTR', N'M3');
+END
+GO
+
+-- Give ItemType a DB-level default so raw inserts that omit it still land on a sensible value.
+IF NOT EXISTS (SELECT 1 FROM sys.default_constraints WHERE parent_object_id = OBJECT_ID(N'inventory.Items') AND name = N'DF_Items_ItemType')
+    ALTER TABLE inventory.Items ADD CONSTRAINT DF_Items_ItemType DEFAULT N'FINISHED_GOOD' FOR ItemType;
+GO
+
+-- Qty available must always reflect on-hand minus reserved; make it a real generated column.
+IF COL_LENGTH(N'inventory.StockLevels', N'QtyAvailable') IS NULL
+    ALTER TABLE inventory.StockLevels ADD QtyAvailable AS (QtyOnHand - QtyReserved) PERSISTED;
+GO
+
+-- Free-text remarks on the append-only movement ledger.
+IF COL_LENGTH(N'inventory.StockMovements', N'Remarks') IS NULL
+    ALTER TABLE inventory.StockMovements ADD Remarks NVARCHAR(500) NULL;
+GO
+
 /* =============================================================================
    SEED: Inventory permissions (global, tenant-independent). Idempotent by Code.
    ========================================================================== */
@@ -866,19 +920,19 @@ BEGIN
         THROW 50001, N'Organization does not exist.', 1;
 
     -- Units of measure
-    INSERT INTO inventory.UnitsOfMeasure (OrganizationId, Code, Name, IsBaseUnit)
-    SELECT @OrganizationId, v.Code, v.Name, v.IsBaseUnit
+    INSERT INTO inventory.UnitsOfMeasure (OrganizationId, Code, Name, UomType, IsBaseUnit)
+    SELECT @OrganizationId, v.Code, v.Name, v.UomType, v.IsBaseUnit
     FROM (VALUES
-        (N'NOS', N'Numbers', 1),
-        (N'KG',  N'Kilogram', 1),
-        (N'TON', N'Metric Ton', 0),
-        (N'BAG', N'Bag', 0),
-        (N'LTR', N'Litre', 1),
-        (N'M',   N'Metre', 1),
-        (N'M2',  N'Square Metre', 1),
-        (N'M3',  N'Cubic Metre', 1),
-        (N'BOX', N'Box', 0)
-    ) AS v(Code, Name, IsBaseUnit)
+        (N'NOS', N'Numbers', N'QUANTITY', 1),
+        (N'KG',  N'Kilogram', N'WEIGHT', 1),
+        (N'TON', N'Metric Ton', N'WEIGHT', 0),
+        (N'BAG', N'Bag', N'QUANTITY', 0),
+        (N'LTR', N'Litre', N'VOLUME', 1),
+        (N'M',   N'Metre', N'LENGTH', 1),
+        (N'M2',  N'Square Metre', N'LENGTH', 1),
+        (N'M3',  N'Cubic Metre', N'VOLUME', 1),
+        (N'BOX', N'Box', N'QUANTITY', 0)
+    ) AS v(Code, Name, UomType, IsBaseUnit)
     WHERE NOT EXISTS (SELECT 1 FROM inventory.UnitsOfMeasure u WHERE u.OrganizationId = @OrganizationId AND u.Code = v.Code);
 
     -- Item categories

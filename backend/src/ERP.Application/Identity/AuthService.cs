@@ -27,8 +27,13 @@ public sealed class AuthService : IAuthService
         if (org is null || org.Status != "ACTIVE")
             throw new UnauthorizedException("Invalid organization or credentials.");
 
-        var user = await _users.GetByEmailAsync(org.Id, request.Email, ct);
+        var user = request.Email.Contains('@')
+            ? await _users.GetByEmailAsync(org.Id, request.Email, ct)
+            : await _users.GetByUsernameAsync(org.Id, request.Email, ct);
         if (user is null || user.Status != "ACTIVE")
+            throw new UnauthorizedException("Invalid organization or credentials.");
+        if (user.PasswordHash is not null &&
+            (string.IsNullOrEmpty(request.Password) || !PasswordSecurity.Verify(request.Password, user.PasswordHash)))
             throw new UnauthorizedException("Invalid organization or credentials.");
 
         var roles = await _users.GetRoleNamesAsync(user.Id, ct);
@@ -46,6 +51,7 @@ public sealed class AuthService : IAuthService
                 OrganizationId = org.Id,
                 OrganizationName = org.Name,
                 Email = user.Email,
+                Username = user.Username,
                 DisplayName = user.DisplayName,
                 Roles = roles,
                 Permissions = permissions

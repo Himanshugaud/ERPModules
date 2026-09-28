@@ -11,9 +11,6 @@ public sealed class CreateItemRequestValidator : AbstractValidator<CreateItemReq
         RuleFor(x => x.Name).NotEmpty().MaximumLength(200);
         RuleFor(x => x.ItemType).NotEmpty().Must(t => ItemTypes.All.Contains(t))
             .WithMessage($"ItemType must be one of: {string.Join(", ", ItemTypes.All)}");
-        RuleFor(x => x.ValuationMethod).Must(v => ValuationMethods.All.Contains(v!))
-            .When(x => !string.IsNullOrEmpty(x.ValuationMethod))
-            .WithMessage($"ValuationMethod must be one of: {string.Join(", ", ValuationMethods.All)}");
         RuleFor(x => x.StandardCost).GreaterThanOrEqualTo(0).When(x => x.StandardCost.HasValue);
         RuleFor(x => x.ReorderLevel).GreaterThanOrEqualTo(0).When(x => x.ReorderLevel.HasValue);
     }
@@ -26,8 +23,6 @@ public sealed class UpdateItemRequestValidator : AbstractValidator<UpdateItemReq
         RuleFor(x => x.Name).NotEmpty().MaximumLength(200);
         RuleFor(x => x.ItemType).NotEmpty().Must(t => ItemTypes.All.Contains(t))
             .WithMessage($"ItemType must be one of: {string.Join(", ", ItemTypes.All)}");
-        RuleFor(x => x.ValuationMethod).Must(v => ValuationMethods.All.Contains(v!))
-            .When(x => !string.IsNullOrEmpty(x.ValuationMethod));
         RuleFor(x => x.StandardCost).GreaterThanOrEqualTo(0).When(x => x.StandardCost.HasValue);
     }
 }
@@ -116,9 +111,13 @@ public sealed class CreateStockTransferRequestValidator : AbstractValidator<Crea
 {
     public CreateStockTransferRequestValidator()
     {
-        RuleFor(x => x.FromWarehouseId).NotEmpty();
+        RuleFor(x => x.SourceAddress).MaximumLength(300);
+        RuleFor(x => x)
+            .Must(x => x.FromWarehouseId.HasValue || !string.IsNullOrWhiteSpace(x.SourceAddress))
+            .WithMessage("Provide a source: either a warehouse or a source address (e.g. a supplier).");
         RuleFor(x => x.ToWarehouseId).NotEmpty()
-            .NotEqual(x => x.FromWarehouseId).WithMessage("Source and destination warehouses must differ.");
+            .Must((req, toId) => !req.FromWarehouseId.HasValue || toId != req.FromWarehouseId.Value)
+            .WithMessage("Source and destination warehouses must differ.");
         RuleFor(x => x.TransportId).NotEmpty().MaximumLength(50).WithMessage("A transport ID is required for every stock transfer.");
         RuleFor(x => x.Lines).NotEmpty();
         RuleForEach(x => x.Lines).ChildRules(l =>

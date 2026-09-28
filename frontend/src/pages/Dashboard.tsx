@@ -6,12 +6,17 @@ import { statusBadge, formatDate } from "../lib/ui";
 
 export default function Dashboard() {
   const { user } = useAuth();
+  const canViewProjects = user?.permissions.includes("project.read") ?? false;
   const navigate = useNavigate();
   const [projects, setProjects] = useState<Project[]>([]);
   const [statusMap, setStatusMap] = useState<Record<string, Lookup>>({});
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    if (!canViewProjects) {
+      setLoading(false);
+      return;
+    }
     (async () => {
       try {
         const [paged, statuses] = await Promise.all([api.projects({ pageSize: 100 }), api.projectStatuses()]);
@@ -21,11 +26,26 @@ export default function Dashboard() {
         setLoading(false);
       }
     })();
-  }, []);
+  }, [canViewProjects]);
+
+  if (!canViewProjects) {
+    return (
+      <>
+        <div className="page-head">
+          <div>
+            <h1 className="page-title">Welcome back{user?.displayName ? `, ${user.displayName}` : ""}</h1>
+            <div className="page-sub">Your workspace reflects the access assigned to your roles.</div>
+          </div>
+        </div>
+        <div className="empty">No modules are currently assigned. Contact an administrator to request access.</div>
+      </>
+    );
+  }
 
   const total = projects.length;
   const codeOf = (p: Project) => statusMap[p.statusId ?? ""]?.code;
-  const active = projects.filter((p) => codeOf(p) === "ACTIVE").length;
+  const notInProgress = ["PLANNING", "COMPLETED", "CANCELLED"];
+  const active = projects.filter((p) => { const c = codeOf(p); return !!c && !notInProgress.includes(c); }).length;
   const completed = projects.filter((p) => codeOf(p) === "COMPLETED").length;
   const avg = total ? Math.round(projects.reduce((s, p) => s + Number(p.completionPercentage), 0) / total) : 0;
 

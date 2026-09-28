@@ -6,6 +6,7 @@ public sealed class LoginRequest
 {
     public string OrganizationCode { get; set; } = default!;
     public string Email { get; set; } = default!;
+    public string? Password { get; set; }
 }
 
 public sealed class MeResponse
@@ -14,6 +15,7 @@ public sealed class MeResponse
     public Guid OrganizationId { get; set; }
     public string? OrganizationName { get; set; }
     public string? Email { get; set; }
+    public string? Username { get; set; }
     public string? DisplayName { get; set; }
     public IReadOnlyList<string> Roles { get; set; } = Array.Empty<string>();
     public IReadOnlyList<string> Permissions { get; set; } = Array.Empty<string>();
@@ -32,6 +34,7 @@ public sealed class LoginRequestValidator : AbstractValidator<LoginRequest>
     public LoginRequestValidator()
     {
         RuleFor(x => x.OrganizationCode).NotEmpty().MaximumLength(50);
-        RuleFor(x => x.Email).NotEmpty().EmailAddress().MaximumLength(255);
+        RuleFor(x => x.Email).NotEmpty().MaximumLength(255);
+        RuleFor(x => x.Password).MaximumLength(128);
     }
 }

@@ -25,6 +25,7 @@ public class User
     public Guid OrganizationId { get; set; }
     public string? ExternalIdentityId { get; set; }
     public string Email { get; set; } = default!;
+    public string? Username { get; set; }
     public string? FirstName { get; set; }
     public string? LastName { get; set; }
     public string? DisplayName { get; set; }
@@ -34,6 +35,7 @@ public class User
     public string Status { get; set; } = "ACTIVE";
     public string? Timezone { get; set; }
     public string? ProfileImageUrl { get; set; }
+    public string? PasswordHash { get; set; }
     public DateTime? LastLoginAt { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }

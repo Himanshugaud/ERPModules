@@ -16,6 +16,8 @@ public interface IUserService
     Task<IReadOnlyList<RoleResponse>> GetRolesAsync(Guid userId, CancellationToken ct = default);
     Task AssignRoleAsync(Guid userId, Guid roleId, CancellationToken ct = default);
     Task RemoveRoleAsync(Guid userId, Guid roleId, CancellationToken ct = default);
+    Task SetPasswordAsync(Guid userId, SetUserPasswordRequest request, CancellationToken ct = default);
+    Task ChangeOwnPasswordAsync(ChangeOwnPasswordRequest request, CancellationToken ct = default);
 }
 
 public sealed class UserService : IUserService
@@ -62,12 +64,15 @@ public sealed class UserService : IUserService
         var orgId = _tenant.OrganizationId;
         if (await _users.EmailExistsAsync(orgId, request.Email, null, ct))
             throw new DuplicateEntityException($"A user with email '{request.Email}' already exists.");
+        if (await _users.UsernameExistsAsync(orgId, request.Username, null, ct))
+            throw new DuplicateEntityException($"A user with username '{request.Username}' already exists.");
 
         var user = new User
         {
             Id = Guid.NewGuid(),
             OrganizationId = orgId,
             Email = request.Email,
+            Username = request.Username,
             FirstName = request.FirstName,
             LastName = request.LastName,
             DisplayName = request.DisplayName ?? $"{request.FirstName} {request.LastName}".Trim(),
@@ -95,6 +100,12 @@ public sealed class UserService : IUserService
         var user = await _users.GetAsync(_tenant.OrganizationId, userId, true, ct)
             ?? throw NotFoundException.For("User", userId);
 
+        if (!string.IsNullOrEmpty(request.Username) && request.Username != user.Username)
+        {
+            if (await _users.UsernameExistsAsync(_tenant.OrganizationId, request.Username, userId, ct))
+                throw new DuplicateEntityException($"A user with username '{request.Username}' already exists.");
+            user.Username = request.Username;
+        }
         user.FirstName = request.FirstName ?? user.FirstName;
         user.LastName = request.LastName ?? user.LastName;
         user.DisplayName = request.DisplayName ?? user.DisplayName;
@@ -170,10 +181,47 @@ public sealed class UserService : IUserService
         }, ct);
     }
 
+    public async Task SetPasswordAsync(Guid userId, SetUserPasswordRequest request, CancellationToken ct = default)
+    {
+        var user = await _users.GetAsync(_tenant.OrganizationId, userId, true, ct)
+            ?? throw NotFoundException.For("User", userId);
+
+        user.PasswordHash = PasswordSecurity.Hash(request.Password);
+        user.UpdatedAt = _clock.UtcNow;
+        user.UpdatedBy = _tenant.UserId;
+
+        await _uow.ExecuteInTransactionAsync(async token =>
+        {
+            _audit.Add("USER", user.Id, AuditActions.Update, null, new { PasswordChanged = true });
+            await _uow.SaveChangesAsync(token);
+        }, ct);
+    }
+
+    public async Task ChangeOwnPasswordAsync(ChangeOwnPasswordRequest request, CancellationToken ct = default)
+    {
+        var user = await _users.GetAsync(_tenant.OrganizationId, _tenant.UserId, true, ct)
+            ?? throw NotFoundException.For("User", _tenant.UserId);
+
+        if (user.PasswordHash is not null &&
+            (string.IsNullOrEmpty(request.CurrentPassword) || !PasswordSecurity.Verify(request.CurrentPassword, user.PasswordHash)))
+            throw new UnauthorizedException("Current password is incorrect.");
+
+        user.PasswordHash = PasswordSecurity.Hash(request.NewPassword);
+        user.UpdatedAt = _clock.UtcNow;
+        user.UpdatedBy = _tenant.UserId;
+
+        await _uow.ExecuteInTransactionAsync(async token =>
+        {
+            _audit.Add("USER", user.Id, AuditActions.Update, null, new { PasswordChanged = true, SelfService = true });
+            await _uow.SaveChangesAsync(token);
+        }, ct);
+    }
+
     private static UserResponse Map(User u) => new()
     {
         Id = u.Id,
         Email = u.Email,
+        Username = u.Username,
         FirstName = u.FirstName,
         LastName = u.LastName,
         DisplayName = u.DisplayName,
