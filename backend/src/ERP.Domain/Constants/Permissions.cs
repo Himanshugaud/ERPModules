@@ -81,6 +81,9 @@ public static class Permissions
     public const string TransferApprove = "transfer.approve";
     public const string TransferDispatch = "transfer.dispatch";
     public const string TransferReceive = "transfer.receive";
+
+    // Project plan (calendar planner + publish)
+    public const string PlanManage = "plan.manage";
 }
 
 public static class EntityTypes
@@ -103,6 +106,8 @@ public static class EntityTypes
     public const string WorkOrder = "WORK_ORDER";
     public const string MaterialRequirement = "MATERIAL_REQUIREMENT";
     public const string PurchaseOrder = "PURCHASE_ORDER";
+    public const string PlanEntry = "PLAN_ENTRY";
+    public const string ProjectPlan = "PROJECT_PLAN";
 }
 
 public static class AuditActions

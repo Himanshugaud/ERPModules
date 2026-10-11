@@ -71,10 +71,17 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddScoped<IStockAdjustmentRepository, StockAdjustmentRepository>();
         services.AddScoped<IBomRepository, BomRepository>();
         services.AddScoped<IWorkOrderRepository, WorkOrderRepository>();
+        services.AddScoped<IFabricationRepository, FabricationRepository>();
 
         // Procurement
         services.AddScoped<IMaterialRequirementRepository, MaterialRequirementRepository>();
         services.AddScoped<IPurchaseOrderRepository, PurchaseOrderRepository>();
+
+        // Workflow (attachments, calendar planner)
+        services.AddSingleton<IBlobStorage, AzureBlobStorage>();
+        services.AddScoped<IDocumentRepository, DocumentRepository>();
+        services.AddScoped<IProjectPlanRepository, ProjectPlanRepository>();
+        services.AddScoped<IRequirementSheetRepository, RequirementSheetRepository>();
 
         return services;
     }

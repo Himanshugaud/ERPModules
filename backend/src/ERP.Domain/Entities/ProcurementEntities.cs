@@ -8,6 +8,9 @@ public class MaterialRequirement
     public Guid ProjectId { get; set; }
     public Guid? WarehouseId { get; set; }
     public string? DestinationAddress { get; set; }
+    public string? SheetType { get; set; }
+    public string? BlockName { get; set; }
+    public string? BlockSize { get; set; }
     public Guid? DepartmentId { get; set; }
     public string Priority { get; set; } = "MEDIUM";
     public string Status { get; set; } = "SUBMITTED";
@@ -36,6 +39,7 @@ public class MaterialRequirementLine
     public decimal Qty { get; set; }
     public Guid? UomId { get; set; }
     public string? Notes { get; set; }
+    public string? SectionName { get; set; }
     public Guid? PurchaseOrderLineId { get; set; }
 }
 

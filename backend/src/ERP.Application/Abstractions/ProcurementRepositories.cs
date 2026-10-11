@@ -9,6 +9,8 @@ public sealed class MaterialRequirementFilter : PageRequest
     public Guid? WarehouseId { get; set; }
     public string? Status { get; set; }
     public string? Priority { get; set; }
+    // Drafts are only visible to the planning team that owns them.
+    public bool IncludeDrafts { get; set; }
 }
 
 public sealed class PurchaseOrderFilter : PageRequest
@@ -24,6 +26,8 @@ public interface IMaterialRequirementRepository
     Task<PagedResult<MaterialRequirement>> ListAsync(Guid organizationId, MaterialRequirementFilter filter, CancellationToken ct = default);
     Task<bool> NumberExistsAsync(Guid organizationId, string number, CancellationToken ct = default);
     Task AddAsync(MaterialRequirement requirement, CancellationToken ct = default);
+    Task<List<MaterialRequirement>> ListForProjectAsync(Guid organizationId, Guid projectId, CancellationToken ct = default);
+    void Remove(MaterialRequirement requirement);
 }
 
 public interface IPurchaseOrderRepository

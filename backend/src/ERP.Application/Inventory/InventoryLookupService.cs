@@ -39,9 +39,11 @@ public sealed class InventoryLookupService : IInventoryLookupService
     public async Task<IReadOnlyList<ItemCategoryResponse>> ListCategoriesAsync(CancellationToken ct = default)
     {
         var items = await _categories.ListAsync(_tenant.OrganizationId, ct);
+        var counts = await _categories.ItemCountsAsync(_tenant.OrganizationId, ct);
         return items.Select(c => new ItemCategoryResponse
         {
-            Id = c.Id, Code = c.Code, Name = c.Name, ParentCategoryId = c.ParentCategoryId, IsActive = c.IsActive
+            Id = c.Id, Code = c.Code, Name = c.Name, ParentCategoryId = c.ParentCategoryId, SortOrder = c.SortOrder,
+            ItemCount = counts.GetValueOrDefault(c.Id), IsActive = c.IsActive
         }).ToList();
     }
 

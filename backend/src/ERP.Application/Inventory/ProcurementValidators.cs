@@ -9,6 +9,9 @@ public sealed class CreateMaterialRequirementRequestValidator : AbstractValidato
     {
         RuleFor(x => x.ProjectId).NotEmpty();
         RuleFor(x => x.DestinationAddress).MaximumLength(300);
+        RuleFor(x => x.SheetType).MaximumLength(40);
+        RuleFor(x => x.BlockName).MaximumLength(100);
+        RuleFor(x => x.BlockSize).MaximumLength(100);
         RuleFor(x => x)
             .Must(x => x.WarehouseId.HasValue || !string.IsNullOrWhiteSpace(x.DestinationAddress))
             .WithMessage("Provide a destination: either a site address or a linked warehouse.");
@@ -20,6 +23,7 @@ public sealed class CreateMaterialRequirementRequestValidator : AbstractValidato
         {
             l.RuleFor(x => x.ItemId).NotEmpty();
             l.RuleFor(x => x.Qty).GreaterThan(0);
+            l.RuleFor(x => x.SectionName).MaximumLength(150);
         });
     }
 }
@@ -41,6 +45,7 @@ public sealed class ConvertToPurchaseOrderRequestValidator : AbstractValidator<C
         RuleForEach(x => x.Lines).ChildRules(l =>
         {
             l.RuleFor(x => x.MaterialRequirementLineId).NotEmpty();
+            l.RuleFor(x => x.Qty).GreaterThan(0).When(x => x.Qty.HasValue);
             l.RuleFor(x => x.UnitPrice).GreaterThanOrEqualTo(0);
             l.RuleFor(x => x.TaxRatePercent).GreaterThanOrEqualTo(0);
         });

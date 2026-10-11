@@ -165,6 +165,12 @@ public sealed class StockTransferConfiguration : IEntityTypeConfiguration<StockT
         b.Property(x => x.TransferNumber).HasMaxLength(50);
         b.Property(x => x.TransportId).HasMaxLength(50);
         b.Property(x => x.SourceAddress).HasMaxLength(300);
+        b.Property(x => x.TransporterName).HasMaxLength(150);
+        b.Property(x => x.VehicleNumber).HasMaxLength(30);
+        b.Property(x => x.VehicleType).HasMaxLength(50);
+        b.Property(x => x.DriverName).HasMaxLength(150);
+        b.Property(x => x.DriverPhone).HasMaxLength(30);
+        b.Property(x => x.DispatchNotes).HasMaxLength(500);
         b.HasMany(x => x.Lines).WithOne().HasForeignKey(l => l.StockTransferId);
     }
 }

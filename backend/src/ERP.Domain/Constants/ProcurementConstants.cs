@@ -2,6 +2,7 @@ namespace ERP.Domain.Constants;
 
 public static class MaterialRequirementStatuses
 {
+    public const string Draft = "DRAFT";
     public const string Submitted = "SUBMITTED";
     public const string Approved = "APPROVED";
     public const string Rejected = "REJECTED";

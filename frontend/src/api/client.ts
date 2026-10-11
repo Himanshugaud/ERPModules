@@ -25,7 +25,8 @@ export class ApiError extends Error {
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const headers: Record<string, string> = {
-    "Content-Type": "application/json",
+    // multipart bodies need the browser to set the boundary itself
+    ...(options.body instanceof FormData ? {} : { "Content-Type": "application/json" }),
     ...(options.headers as Record<string, string>)
   };
   const token = getToken();
@@ -234,6 +235,8 @@ export interface ItemCategory {
   code: string;
   name: string;
   parentCategoryId?: string;
+  sortOrder: number;
+  itemCount: number;
   isActive: boolean;
 }
 
@@ -289,6 +292,13 @@ export interface InventoryDocument {
   totalValue: number;
   createdAt: string;
   lines?: { itemId: string; qty: number; uomId?: string }[];
+  transporterName?: string;
+  vehicleNumber?: string;
+  vehicleType?: string;
+  driverName?: string;
+  driverPhone?: string;
+  expectedDeliveryDate?: string;
+  dispatchNotes?: string;
   requestedBy?: string;
   approvedBy?: string;
   approvedAt?: string;
@@ -305,12 +315,20 @@ export interface MaterialRequirementLine {
   qty: number;
   uomId?: string;
   notes?: string;
+  sectionName?: string;
   purchaseOrderLineId?: string;
 }
+
+export interface SheetCatalogItem { id: string; code: string; name: string; uomId?: string; uomCode?: string; isFabricated?: boolean }
+export interface SheetCatalogSection { id: string; name: string; items: SheetCatalogItem[] }
+export interface SheetCatalogType { id: string; code: string; name: string; description?: string; sections: SheetCatalogSection[] }
 
 export interface MaterialRequirement {
   id: string;
   reqNumber: string;
+  sheetType?: string;
+  blockName?: string;
+  blockSize?: string;
   projectId: string;
   warehouseId?: string;
   destinationAddress?: string;
@@ -366,6 +384,59 @@ export interface PurchaseOrder {
   lines: PurchaseOrderLine[];
 }
 
+// ---- Attachments / Planning calendar ----
+export type AttachmentCategory = "REQUIREMENT" | "PLANNING" | "PROCUREMENT" | "TRANSPORT" | "OTHER";
+
+export interface ProjectAttachment {
+  id: string;
+  projectId: string;
+  category: AttachmentCategory;
+  folder: string;
+  fileName: string;
+  contentType?: string;
+  fileSize: number;
+  description?: string;
+  uploadedBy?: string;
+  createdAt: string;
+}
+
+export interface PlanEntry {
+  id: string;
+  projectId: string;
+  startDate: string;
+  endDate: string;
+  title: string;
+  description?: string;
+  entryType: string;
+  status: string;
+  assignedTo?: string;
+  createdAt: string;
+}
+
+export interface ProjectPlan {
+  projectId: string;
+  status: "DRAFT" | "PUBLISHED";
+  publishedAt?: string;
+  publishedBy?: string;
+  notes?: string;
+  draftRequirementCount: number;
+  requirementCount: number;
+  planningAttachmentCount: number;
+  calendarEntryCount: number;
+  /** Fabrication work orders raised by this publish (publish response only). */
+  fabricationOrdersRaised?: number;
+}
+
+export interface DispatchDetails {
+  transporterName?: string;
+  vehicleNumber: string;
+  vehicleType?: string;
+  driverName: string;
+  driverPhone?: string;
+  expectedDeliveryDate?: string;
+  dispatchNotes?: string;
+}
+
 export interface Bom {
   id: string;
   code: string;
@@ -388,6 +459,7 @@ export interface WorkOrder {
   scrapQty: number;
   warehouseId: string;
   projectId?: string;
+  materialRequirementId?: string;
   status: string;
   startDate?: string;
   endDate?: string;
@@ -498,11 +570,28 @@ export const api = {
   items: (params: Record<string, string | number | boolean | undefined> = {}) =>
     request<Paged<InventoryItem>>(`/items?${qstr(params)}`),
   item: (id: string) => request<{ data: InventoryItem }>(`/items/${id}`).then((r) => r.data),
+  /** Every item (the API caps a page at 100), cached for the session. */
+  allItems: () =>
+    cached("allItems", async () => {
+      const data: InventoryItem[] = [];
+      for (let page = 1; page <= 30; page++) {
+        const res = await request<Paged<InventoryItem>>(`/items?${qstr({ page, pageSize: 100 })}`);
+        data.push(...res.data);
+        if (res.data.length < 100) break;
+      }
+      return { data };
+    }),
   createItem: (payload: Record<string, unknown>) =>
-    request<{ data: InventoryItem }>("/items", { method: "POST", body: JSON.stringify(payload) }).then((r) => r.data),
+    request<{ data: InventoryItem }>("/items", { method: "POST", body: JSON.stringify(payload) }).then((r) => {
+      invalidate("allItems");
+      return r.data;
+    }),
   updateItem: (id: string, payload: Record<string, unknown>) =>
-    request<{ data: InventoryItem }>(`/items/${id}`, { method: "PUT", body: JSON.stringify(payload) }).then((r) => r.data),
-  deleteItem: (id: string) => request<void>(`/items/${id}`, { method: "DELETE" }),
+    request<{ data: InventoryItem }>(`/items/${id}`, { method: "PUT", body: JSON.stringify(payload) }).then((r) => {
+      invalidate("allItems");
+      return r.data;
+    }),
+  deleteItem: (id: string) => request<void>(`/items/${id}`, { method: "DELETE" }).then(() => invalidate("allItems")),
 
   warehouses: () => cached("warehouses", () => request<{ data: Warehouse[] }>("/warehouses").then((r) => r.data)),
   createWarehouse: (payload: Record<string, unknown>) =>
@@ -559,8 +648,8 @@ export const api = {
     request<{ data: InventoryDocument }>("/stock-transfers", { method: "POST", body: JSON.stringify(payload) }).then((r) => r.data),
   approveStockTransfer: (id: string) =>
     request<{ data: InventoryDocument }>(`/stock-transfers/${id}/approve`, { method: "POST" }).then((r) => r.data),
-  dispatchStockTransfer: (id: string) =>
-    request<{ data: InventoryDocument }>(`/stock-transfers/${id}/dispatch`, { method: "POST" }).then((r) => r.data),
+  dispatchStockTransfer: (id: string, details: DispatchDetails) =>
+    request<{ data: InventoryDocument }>(`/stock-transfers/${id}/dispatch`, { method: "POST", body: JSON.stringify(details) }).then((r) => r.data),
   receiveStockTransfer: (id: string) =>
     request<{ data: InventoryDocument }>(`/stock-transfers/${id}/receive`, { method: "POST" }).then((r) => r.data),
 
@@ -575,6 +664,66 @@ export const api = {
     request<{ data: MaterialRequirement }>(`/material-requirements/${id}/approve`, { method: "POST" }).then((r) => r.data),
   rejectMaterialRequirement: (id: string, reason: string) =>
     request<{ data: MaterialRequirement }>(`/material-requirements/${id}/reject`, { method: "POST", body: JSON.stringify({ reason }) }).then((r) => r.data),
+  deleteMaterialRequirement: (id: string) => request<void>(`/material-requirements/${id}`, { method: "DELETE" }),
+  sheetCatalog: () => request<{ data: SheetCatalogType[] }>("/requirement-sheets/catalog").then((r) => r.data),
+  convertMaterialRequirementToPo: (id: string, payload: Record<string, unknown>) =>
+    request<{ data: PurchaseOrder }>(`/material-requirements/${id}/convert-to-po`, { method: "POST", body: JSON.stringify(payload) }).then((r) => r.data),
+
+  // ---- Purchase order lifecycle ----
+  submitPurchaseOrder: (id: string) =>
+    request<{ data: PurchaseOrder }>(`/purchase-orders/${id}/submit`, { method: "POST" }).then((r) => r.data),
+  approvePurchaseOrder: (id: string) =>
+    request<{ data: PurchaseOrder }>(`/purchase-orders/${id}/approve`, { method: "POST" }).then((r) => r.data),
+  rejectPurchaseOrder: (id: string, reason: string) =>
+    request<{ data: PurchaseOrder }>(`/purchase-orders/${id}/reject`, { method: "POST", body: JSON.stringify({ reason }) }).then((r) => r.data),
+  markPurchaseOrderOrdered: (id: string) =>
+    request<{ data: PurchaseOrder }>(`/purchase-orders/${id}/mark-ordered`, { method: "POST" }).then((r) => r.data),
+  closePurchaseOrder: (id: string) =>
+    request<{ data: PurchaseOrder }>(`/purchase-orders/${id}/close`, { method: "POST" }).then((r) => r.data),
+
+  // ---- Attachments (stored in Azure Blob Storage) ----
+  projectAttachments: (projectId: string, category?: AttachmentCategory) =>
+    request<{ data: ProjectAttachment[] }>(`/projects/${projectId}/attachments?${qstr({ category })}`).then((r) => r.data),
+  uploadAttachment: (projectId: string, category: AttachmentCategory, file: File, description?: string) => {
+    const form = new FormData();
+    form.append("file", file);
+    form.append("category", category);
+    if (description) form.append("description", description);
+    return request<{ data: ProjectAttachment }>(`/projects/${projectId}/attachments`, { method: "POST", body: form }).then((r) => r.data);
+  },
+  deleteAttachment: (id: string) => request<void>(`/attachments/${id}`, { method: "DELETE" }),
+  draftAttachments: (draftId: string) =>
+    request<{ data: ProjectAttachment[] }>(`/requirement-drafts/${draftId}/attachments`).then((r) => r.data),
+  uploadDraftAttachment: (draftId: string, file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return request<{ data: ProjectAttachment }>(`/requirement-drafts/${draftId}/attachments`, { method: "POST", body: form }).then((r) => r.data);
+  },
+  adoptDraftAttachments: (projectId: string, draftId: string) =>
+    request<{ data: ProjectAttachment[] }>(`/projects/${projectId}/attachments/adopt-draft/${draftId}`, { method: "POST" }).then((r) => r.data),
+  downloadAttachment: async (attachment: Pick<ProjectAttachment, "id" | "fileName">) => {
+    const token = getToken();
+    const res = await fetch(`${BASE_URL}/attachments/${attachment.id}/download`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+    if (!res.ok) throw new ApiError(res.status, res.status === 404 ? "The file could not be found." : "Unable to download the file.");
+    const url = URL.createObjectURL(await res.blob());
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = attachment.fileName;
+    a.click();
+    URL.revokeObjectURL(url);
+  },
+
+  // ---- Project plan (calendar planner + publish) ----
+  projectPlan: (projectId: string) => request<{ data: ProjectPlan }>(`/projects/${projectId}/plan`).then((r) => r.data),
+  publishProjectPlan: (projectId: string, notes?: string) =>
+    request<{ data: ProjectPlan }>(`/projects/${projectId}/plan/publish`, { method: "POST", body: JSON.stringify({ notes: notes || undefined }) }).then((r) => r.data),
+  planEntries: (projectId: string, from?: string, to?: string) =>
+    request<{ data: PlanEntry[] }>(`/projects/${projectId}/plan/entries?${qstr({ from, to })}`).then((r) => r.data),
+  createPlanEntry: (projectId: string, payload: Record<string, unknown>) =>
+    request<{ data: PlanEntry }>(`/projects/${projectId}/plan/entries`, { method: "POST", body: JSON.stringify(payload) }).then((r) => r.data),
+  updatePlanEntry: (id: string, payload: Record<string, unknown>) =>
+    request<{ data: PlanEntry }>(`/plan/entries/${id}`, { method: "PUT", body: JSON.stringify(payload) }).then((r) => r.data),
+  deletePlanEntry: (id: string) => request<void>(`/plan/entries/${id}`, { method: "DELETE" }),
 
   stockAdjustments: (params: Record<string, string | number | undefined> = {}) =>
     request<Paged<InventoryDocument>>(`/stock-adjustments?${qstr(params)}`),

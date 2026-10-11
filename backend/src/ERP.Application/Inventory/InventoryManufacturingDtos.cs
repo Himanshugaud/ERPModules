@@ -81,6 +81,7 @@ public sealed class WorkOrderResponse
     public decimal ScrapQty { get; set; }
     public Guid WarehouseId { get; set; }
     public Guid? ProjectId { get; set; }
+    public Guid? MaterialRequirementId { get; set; }
     public string Status { get; set; } = default!;
     public DateOnly? StartDate { get; set; }
     public DateOnly? EndDate { get; set; }

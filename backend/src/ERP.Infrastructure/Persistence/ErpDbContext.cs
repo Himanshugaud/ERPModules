@@ -58,6 +58,14 @@ public sealed class ErpDbContext : DbContext
     public DbSet<PurchaseOrder> PurchaseOrders => Set<PurchaseOrder>();
     public DbSet<PurchaseOrderLine> PurchaseOrderLines => Set<PurchaseOrderLine>();
 
+    // Workflow
+    public DbSet<Document> Documents => Set<Document>();
+    public DbSet<PlanEntry> PlanEntries => Set<PlanEntry>();
+    public DbSet<ProjectPlan> ProjectPlans => Set<ProjectPlan>();
+    public DbSet<RequirementSheetType> RequirementSheetTypes => Set<RequirementSheetType>();
+    public DbSet<RequirementSheetSection> RequirementSheetSections => Set<RequirementSheetSection>();
+    public DbSet<RequirementSheetSectionItem> RequirementSheetSectionItems => Set<RequirementSheetSectionItem>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(ErpDbContext).Assembly);

@@ -1,7 +1,11 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
-import { api, ApiError, type Project, type Lookup, type Warehouse, type InventoryItem, type MaterialRequirement } from "../api/client";
-import { formatDate } from "../lib/ui";
+import { api, ApiError, type Project, type Lookup, type Warehouse, type InventoryItem, type MaterialRequirement, type ProjectPlan, type SheetCatalogType, type UserItem } from "../api/client";
+import AttachmentsPanel from "../components/AttachmentsPanel";
+import PlanCalendar from "../components/PlanCalendar";
+import SheetCreator from "../components/SheetCreator";
+import { downloadRequirementXlsx, parseRequirementXlsx, type ParsedSheet } from "../lib/sheetExcel";
+import { formatDate, formatDateTime } from "../lib/ui";
 import { useAuth } from "../auth/AuthContext";
 
 type LineRow = { itemId: string; qty: string; uomId: string; notes: string };
@@ -36,7 +40,7 @@ export default function Planning() {
   useEffect(() => {
     api.projectStatuses().then(setStatuses).catch(() => setStatuses([]));
     api.warehouses().then(setWarehouses).catch(() => setWarehouses([]));
-    api.items({ pageSize: 200 }).then((r) => setItems(r.data)).catch(() => setItems([]));
+    api.allItems().then((r) => setItems(r.data)).catch(() => setItems([]));
     api.uoms().then(setUoms).catch(() => setUoms([]));
   }, []);
 
@@ -50,7 +54,7 @@ export default function Planning() {
       <div className="page-head">
         <div>
           <h1 className="page-title">Planning</h1>
-          <div className="page-sub">Finalized requirements land here. Build the materials estimate before it moves to Inventory.</div>
+          <div className="page-sub">Finalized requirements land here. Build the materials estimate, plan the calendar, attach documents, then publish to Supply Chain.</div>
         </div>
         <div className="head-actions">
           <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13 }}>
@@ -86,7 +90,7 @@ export default function Planning() {
                   <td>{p.budget ? `${p.currencyCode ?? ""} ${p.budget.toLocaleString()}` : "—"}</td>
                   <td>
                     <div className="row-actions">
-                      <button className="btn btn-sm primary" onClick={(e) => { e.stopPropagation(); setSelected(p); }}>Materials Estimate</button>
+                      <button className="btn btn-sm primary" onClick={(e) => { e.stopPropagation(); setSelected(p); }}>Plan Workspace</button>
                       <button className="btn btn-sm" onClick={(e) => { e.stopPropagation(); navigate(`/projects/${p.id}`); }}>Open Project</button>
                     </div>
                   </td>
@@ -112,13 +116,28 @@ export default function Planning() {
 
 function MaterialsEstimateModal(props: { project: Project; warehouses: Warehouse[]; items: InventoryItem[]; uoms: Lookup[]; onClose: () => void }) {
   const { user } = useAuth();
+  const perms = user?.permissions ?? [];
+  const canManagePlan = perms.includes("plan.manage");
+  const canEditMaterials = perms.includes("materialrequirement.create");
+  const [tab, setTab] = useState<"materials" | "calendar" | "attachments" | "publish">("materials");
+  const [plan, setPlan] = useState<ProjectPlan | null>(null);
+  const [users, setUsers] = useState<UserItem[]>([]);
+  const [publishNotes, setPublishNotes] = useState("");
+  const [publishing, setPublishing] = useState(false);
+  const [fabRaised, setFabRaised] = useState<number | null>(null);
   const [requirements, setRequirements] = useState<MaterialRequirement[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [addOpen, setAddOpen] = useState(false);
+  const [catalog, setCatalog] = useState<SheetCatalogType[]>([]);
+  const [creator, setCreator] = useState<{ typeCode?: string; parsed?: ParsedSheet; replace?: MaterialRequirement } | null>(null);
+  const importInput = useRef<HTMLInputElement>(null);
 
-  const itemMap = Object.fromEntries(props.items.map((it) => [it.id, it]));
-  const uomMap = Object.fromEntries(props.uoms.map((u) => [u.id, u]));
+  const published = plan?.status === "PUBLISHED";
+
+  async function loadPlan() {
+    try { setPlan(await api.projectPlan(props.project.id)); } catch { setPlan(null); }
+  }
 
   async function load() {
     setLoading(true);
@@ -131,85 +150,185 @@ function MaterialsEstimateModal(props: { project: Project; warehouses: Warehouse
     } finally {
       setLoading(false);
     }
+    await loadPlan();
   }
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    load();
+    api.users().then(setUsers).catch(() => setUsers([]));
+    api.sheetCatalog().then(setCatalog).catch(() => setCatalog([]));
+  }, []);
+
+  async function deleteDraft(r: MaterialRequirement) {
+    if (!window.confirm(`Delete draft estimate ${r.reqNumber}?`)) return;
+    setError(null);
+    try { await api.deleteMaterialRequirement(r.id); await load(); }
+    catch (err) { setError(err instanceof ApiError ? err.message : "Unable to delete the draft."); }
+  }
+
+  async function publish() {
+    if (!window.confirm("Publish this plan? Supply Chain will receive the material list and the Execution team will see the project plan.")) return;
+    setPublishing(true);
+    setError(null);
+    try {
+      const result = await api.publishProjectPlan(props.project.id, publishNotes.trim() || undefined);
+      setPlan(result);
+      setFabRaised(result.fabricationOrdersRaised ?? 0);
+      setPublishNotes("");
+      await load();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Unable to publish the plan.");
+    } finally {
+      setPublishing(false);
+    }
+  }
 
   function downloadCsv(r: MaterialRequirement) {
-    const escape = (v: string) => `"${v.replace(/"/g, '""')}"`;
-    const line = (cells: string[]) => cells.map(escape).join(",") + "\r\n";
-    const destination = r.destinationAddress || props.warehouses.find((w) => w.id === r.warehouseId)?.name || "—";
+    const sheetTypeName = catalog.find((t) => t.code === r.sheetType)?.name;
+    downloadRequirementXlsx(r, {
+      orgName: user?.organizationName ?? "",
+      projectName: props.project.name,
+      projectCode: props.project.code,
+      items: props.items,
+      uoms: props.uoms,
+      sheetTypeName
+    }).catch(() => setError("Unable to create the Excel file."));
+  }
 
-    let csv = "";
-    csv += line(["Organization", user?.organizationName ?? ""]);
-    csv += line(["Project Name", props.project.name]);
-    csv += line(["Project Code", props.project.code]);
-    csv += line(["Requirement #", r.reqNumber]);
-    csv += line(["Destination", destination]);
-    csv += line(["Priority", r.priority]);
-    csv += line(["Status", r.status]);
-    csv += line(["Required Date", formatDate(r.requiredDate)]);
-    csv += "\r\n";
-    csv += line(["Item Code", "Item Name", "Qty", "UOM", "Notes"]);
-    for (const l of r.lines) {
-      csv += line([
-        itemMap[l.itemId]?.code ?? "",
-        itemMap[l.itemId]?.name ?? l.itemId,
-        String(l.qty),
-        uomMap[l.uomId ?? ""]?.code ?? "",
-        l.notes ?? ""
-      ]);
+  async function importExcel(file: File | undefined) {
+    if (!file) return;
+    setError(null);
+    try {
+      const parsed = await parseRequirementXlsx(file, catalog);
+      if (parsed.lines.length === 0 && parsed.unmatched.length === 0) { setError("No quantities were found in that file."); return; }
+      setCreator({ parsed });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to read the Excel file.");
+    } finally {
+      if (importInput.current) importInput.current.value = "";
     }
-
-    const safeName = props.project.name.replace(/[\\/:*?"<>|]+/g, "").trim();
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${safeName}_Material Estimate.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
   }
 
   return (
     <div className="modal-overlay" onClick={props.onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 720 }}>
+      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 960, width: "96vw" }}>
         <div className="modal-head">
           <div>
-            <h3>Materials Estimate</h3>
+            <h3>Plan Workspace</h3>
             <div className="muted" style={{ fontSize: 13 }}>{props.project.name} · {props.project.code}</div>
           </div>
-          <button className="icon-btn" onClick={props.onClose}>✕</button>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            {plan && <span className={`badge ${published ? "green" : "amber"}`}>{published ? "Published" : "Draft"}</span>}
+            <button className="icon-btn" onClick={props.onClose}>✕</button>
+          </div>
         </div>
         <div className="modal-body">
-          {error && <div className="form-error">{error}</div>}
-          <div className="head-actions" style={{ marginBottom: 10 }}>
-            <button className="btn primary btn-sm" onClick={() => setAddOpen(true)}>+ Add Materials</button>
+          <div className="tabs" style={{ marginBottom: 14 }}>
+            {([["materials", "Materials"], ["calendar", "Calendar Planner"], ["attachments", "Attachments"], ["publish", "Publish"]] as const).map(([key, text]) => (
+              <span key={key} className={`tab ${tab === key ? "active" : ""}`} style={{ cursor: "pointer" }} onClick={() => setTab(key)}>{text}</span>
+            ))}
           </div>
+          {error && <div className="form-error">{error}</div>}
+
+          {tab === "materials" && (<>
+          {canEditMaterials && (
+            <div className="head-actions" style={{ marginBottom: 10, flexWrap: "wrap" }}>
+              {catalog.map((t) => (
+                <button key={t.code} className="btn primary btn-sm" onClick={() => setCreator({ typeCode: t.code })}>+ {t.name} sheet</button>
+              ))}
+              <input ref={importInput} type="file" accept=".xlsx" hidden onChange={(e) => importExcel(e.target.files?.[0])} />
+              <button className="btn btn-sm" onClick={() => importInput.current?.click()} disabled={catalog.length === 0}>⭱ Import Excel</button>
+              <button className="btn btn-sm" onClick={() => setAddOpen(true)}>+ Custom items</button>
+              {!published && <span className="muted" style={{ fontSize: 12 }}>Sheets stay as drafts until you publish the plan.</span>}
+            </div>
+          )}
           {loading ? (
             <div className="skeleton" style={{ height: 60 }} />
           ) : requirements.length === 0 ? (
-            <div className="empty">No materials estimate yet. Add materials from the item master to send this to Inventory.</div>
+            <div className="empty">No requirement sheets yet. Create one per material type (structure, plumbing, electrical…) or import an Excel sheet, then publish the plan to send it to Supply Chain.</div>
           ) : (
             <div className="table-wrap">
               <table>
-                <thead><tr><th>Req #</th><th>Destination</th><th>Priority</th><th>Materials</th><th>Status</th><th>Required</th></tr></thead>
+                <thead><tr><th>Sheet</th><th>Ship to</th><th>Priority</th><th>Items</th><th>Status</th><th>Required</th><th></th></tr></thead>
                 <tbody>
                   {requirements.map((r) => (
                     <tr key={r.id}>
-                      <td>{r.reqNumber}</td>
+                      <td>
+                        <div className="cell-title">{catalog.find((t) => t.code === r.sheetType)?.name ?? "Custom items"}</div>
+                        <div className="cell-code">{r.reqNumber}{r.blockName ? ` · ${r.blockName}` : ""}{r.blockSize ? ` (${r.blockSize})` : ""}</div>
+                      </td>
                       <td>{r.destinationAddress || props.warehouses.find((w) => w.id === r.warehouseId)?.name || "—"}</td>
                       <td>{r.priority}</td>
                       <td>
-                        <div className="muted" style={{ fontSize: 13 }}>{r.lines.length} material{r.lines.length === 1 ? "" : "s"}</div>
-                        <button type="button" className="btn-link" onClick={() => downloadCsv(r)}>⭳ Download CSV</button>
+                        <div className="muted" style={{ fontSize: 13 }}>{r.lines.length} item{r.lines.length === 1 ? "" : "s"}</div>
+                        <button type="button" className="btn-link" onClick={() => downloadCsv(r)}>⭳ Excel</button>
                       </td>
-                      <td><span className={`badge ${r.status === "SUBMITTED" ? "blue" : r.status === "APPROVED" ? "green" : r.status === "REJECTED" ? "red" : "gray"}`}>{r.status}</span></td>
+                      <td><span className={`badge ${r.status === "SUBMITTED" ? "blue" : r.status === "APPROVED" ? "green" : r.status === "REJECTED" ? "red" : r.status === "DRAFT" ? "amber" : "gray"}`}>{r.status}</span></td>
                       <td>{formatDate(r.requiredDate)}</td>
+                      <td>
+                        {r.status === "DRAFT" && canEditMaterials && (
+                          <div className="row-actions">
+                            {r.sheetType && <button className="btn btn-sm" onClick={() => setCreator({ replace: r, typeCode: r.sheetType })}>Edit</button>}
+                            <button className="btn btn-sm danger" onClick={() => deleteDraft(r)}>Delete</button>
+                          </div>
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
+            </div>
+          )}
+          </>)}
+
+          {tab === "calendar" && (
+            <PlanCalendar projectId={props.project.id} canEdit={canManagePlan} users={users} onChanged={loadPlan} />
+          )}
+
+          {tab === "attachments" && (
+            <AttachmentsPanel projectId={props.project.id} defaultCategory="PLANNING" users={users} onChanged={loadPlan} />
+          )}
+
+          {tab === "publish" && (
+            <div>
+              <p className="muted" style={{ marginTop: 0 }}>
+                Publishing hands the plan over: Supply Chain receives the material list to arrange stock or purchase orders, and the Execution team can see the project plan.
+              </p>
+              <div className="meta-grid" style={{ marginTop: 8 }}>
+                <div className="meta-item"><div className="meta-label">Materials estimates</div><div className="meta-value">{plan?.requirementCount ?? 0}{plan && plan.draftRequirementCount > 0 ? ` (${plan.draftRequirementCount} draft)` : ""}</div></div>
+                <div className="meta-item"><div className="meta-label">Planning attachments</div><div className="meta-value">{plan?.planningAttachmentCount ?? 0}</div></div>
+                <div className="meta-item"><div className="meta-label">Calendar items</div><div className="meta-value">{plan?.calendarEntryCount ?? 0}</div></div>
+              </div>
+              {plan && (plan.requirementCount === 0 || plan.planningAttachmentCount === 0 || plan.calendarEntryCount === 0) && (
+                <div className="draft-note" style={{ marginTop: 14 }}>
+                  <span className="dot" style={{ background: "var(--amber)" }} />
+                  {[plan.requirementCount === 0 && "add a materials estimate (required)", plan.planningAttachmentCount === 0 && "upload planning documents", plan.calendarEntryCount === 0 && "plan the calendar"].filter(Boolean).join(" · ")}
+                </div>
+              )}
+              {published && (
+                <div className="badge green" style={{ marginTop: 14 }}>Published {formatDateTime(plan?.publishedAt)}{plan?.notes ? ` · ${plan.notes}` : ""}</div>
+              )}
+              {fabRaised !== null && (
+                <div className="draft-note" style={{ marginTop: 10 }}>
+                  <span className="dot" style={{ background: "var(--blue)" }} />
+                  {fabRaised > 0
+                    ? `${fabRaised} fabrication order${fabRaised > 1 ? "s" : ""} raised for factory-made items that stock cannot cover — see Inventory → Production.`
+                    : "No fabrication needed — factory-made items on this plan are covered by stock (or there are none)."}
+                </div>
+              )}
+              {canManagePlan ? (
+                <div style={{ marginTop: 16 }}>
+                  <div className="field">
+                    <label>Hand-over note (optional)</label>
+                    <textarea rows={2} value={publishNotes} onChange={(e) => setPublishNotes(e.target.value)} maxLength={1000} placeholder="Anything Supply Chain and Execution should know" />
+                  </div>
+                  <button className="btn primary" disabled={publishing || !plan || plan.requirementCount === 0} onClick={publish}>
+                    {publishing ? <span className="spinner" /> : published ? (plan && plan.draftRequirementCount > 0 ? "Publish new estimates" : "Re-publish") : "Publish plan"}
+                  </button>
+                </div>
+              ) : (
+                <div className="muted" style={{ marginTop: 14 }}>Only the Planning team can publish a plan.</div>
+              )}
             </div>
           )}
         </div>
@@ -218,9 +337,24 @@ function MaterialsEstimateModal(props: { project: Project; warehouses: Warehouse
         </div>
       </div>
 
+      {creator && (
+        <SheetCreator
+          project={props.project}
+          catalog={catalog}
+          warehouses={props.warehouses}
+          asDraft={!published}
+          typeCode={creator.typeCode}
+          parsed={creator.parsed}
+          replace={creator.replace}
+          onClose={() => setCreator(null)}
+          onSaved={async () => { setCreator(null); await load(); }}
+        />
+      )}
+
       {addOpen && (
         <AddMaterialsModal
           project={props.project}
+          asDraft={!published}
           warehouses={props.warehouses}
           items={props.items}
           uoms={props.uoms}
@@ -235,7 +369,7 @@ function MaterialsEstimateModal(props: { project: Project; warehouses: Warehouse
 type Draft = { warehouseId: string; destinationAddress: string; priority: string; requiredDate: string; notes: string; lines: LineRow[] };
 const EMPTY_LINE: LineRow = { itemId: "", qty: "", uomId: "", notes: "" };
 
-function AddMaterialsModal(props: { project: Project; warehouses: Warehouse[]; items: InventoryItem[]; uoms: Lookup[]; onClose: () => void; onSaved: () => void }) {
+function AddMaterialsModal(props: { project: Project; asDraft: boolean; warehouses: Warehouse[]; items: InventoryItem[]; uoms: Lookup[]; onClose: () => void; onSaved: () => void }) {
   const draftKey = `erp_planning_draft_${props.project.id}`;
   const siteWarehouses = props.warehouses.filter((w) => w.warehouseType === "SITE_STORE" && w.projectId === props.project.id);
   const candidateWarehouses = siteWarehouses.length > 0 ? siteWarehouses : props.warehouses;
@@ -295,6 +429,7 @@ function AddMaterialsModal(props: { project: Project; warehouses: Warehouse[]; i
     try {
       await api.createMaterialRequirement({
         projectId: props.project.id,
+        asDraft: props.asDraft,
         warehouseId: warehouseId || undefined,
         destinationAddress: destinationAddress.trim(),
         priority,
@@ -394,7 +529,7 @@ function AddMaterialsModal(props: { project: Project; warehouses: Warehouse[]; i
         </div>
         <div className="modal-foot">
           <button type="button" className="btn" onClick={props.onClose}>Cancel</button>
-          <button className="btn primary" disabled={saving}>{saving ? <span className="spinner" /> : "Submit to Inventory"}</button>
+          <button className="btn primary" disabled={saving}>{saving ? <span className="spinner" /> : props.asDraft ? "Save to estimate" : "Send to Supply Chain"}</button>
         </div>
       </form>
     </div>

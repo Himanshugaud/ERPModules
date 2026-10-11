@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { api, ApiError, type Project, type Lookup, type UserItem, type Client } from "../api/client";
+import ProjectArtifacts from "../components/ProjectArtifacts";
 import { statusBadge, formatDate, initials } from "../lib/ui";
 
 const PAGE_SIZES = [8, 25, 50];
@@ -35,6 +36,7 @@ export default function Projects() {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
+  const [attachFor, setAttachFor] = useState<Project | null>(null);
   const [searchInput, setSearchInput] = useState(q);
 
   const [statuses, setStatuses] = useState<Lookup[]>([]);
@@ -184,19 +186,20 @@ export default function Projects() {
               <th className="sortable" onClick={() => toggleSort("status")}>Status{sortArrow("status")}</th>
               <th className="sortable" onClick={() => toggleSort("progress")}>Progress{sortArrow("progress")}</th>
               <th className="sortable" onClick={() => toggleSort("duedate")}>Due Date{sortArrow("duedate")}</th>
+              <th>Attachments</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
               [...Array(5)].map((_, i) => (
                 <tr key={i}>
-                  {[...Array(6)].map((__, j) => (
+                  {[...Array(7)].map((__, j) => (
                     <td key={j}><div className="skeleton" style={{ height: 14, width: j === 0 ? 180 : 90 }} /></td>
                   ))}
                 </tr>
               ))
             ) : projects.length === 0 ? (
-              <tr><td colSpan={6}><div className="empty">No projects match your filters.{activeChips.length > 0 ? " Try clearing some filters." : ""}</div></td></tr>
+              <tr><td colSpan={7}><div className="empty">No projects match your filters.{activeChips.length > 0 ? " Try clearing some filters." : ""}</div></td></tr>
             ) : (
               projects.map((p) => {
                 const b = statusBadge(statusMap[p.statusId ?? ""]?.code);
@@ -226,6 +229,9 @@ export default function Projects() {
                       </div>
                     </td>
                     <td>{formatDate(p.plannedEndDate)}</td>
+                    <td>
+                      <button className="btn btn-sm" onClick={(e) => { e.stopPropagation(); setAttachFor(p); }}>📎 Files</button>
+                    </td>
                   </tr>
                 );
               })
@@ -248,6 +254,27 @@ export default function Projects() {
           </div>
         </div>
       </div>
+
+      {attachFor && (
+        <div className="modal-overlay" onClick={() => setAttachFor(null)}>
+          <div className="modal" style={{ maxWidth: 900 }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-head">
+              <div>
+                <h3>Project artifacts</h3>
+                <div className="muted" style={{ fontSize: 13 }}>{attachFor.name} · {attachFor.code}</div>
+              </div>
+              <button className="icon-btn" onClick={() => setAttachFor(null)}>✕</button>
+            </div>
+            <div className="modal-body">
+              <ProjectArtifacts projectId={attachFor.id} users={users} />
+            </div>
+            <div className="modal-foot">
+              <button className="btn" onClick={() => navigate(`/projects/${attachFor.id}`)}>Open project</button>
+              <button className="btn primary" onClick={() => setAttachFor(null)}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showCreate && (
         <CreateProjectModal

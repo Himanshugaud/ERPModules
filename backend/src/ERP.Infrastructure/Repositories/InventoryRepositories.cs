@@ -23,8 +23,18 @@ public sealed class ItemRepository : IItemRepository
         var q = _db.Items.AsNoTracking().Where(i => i.OrganizationId == organizationId);
 
         if (!string.IsNullOrWhiteSpace(filter.ItemType)) q = q.Where(i => i.ItemType == filter.ItemType);
-        if (filter.CategoryId.HasValue) q = q.Where(i => i.CategoryId == filter.CategoryId);
+        if (filter.CategoryId.HasValue)
+        {
+            // A category filter includes every sub-category beneath it.
+            var ids = new List<Guid> { filter.CategoryId.Value };
+            var parents = await _db.ItemCategories.AsNoTracking().Where(c => c.OrganizationId == organizationId)
+                .Select(c => new { c.Id, c.ParentCategoryId }).ToListAsync(ct);
+            for (var n = 0; n < ids.Count; n++)
+                ids.AddRange(parents.Where(p => p.ParentCategoryId == ids[n]).Select(p => p.Id));
+            q = q.Where(i => i.CategoryId != null && ids.Contains(i.CategoryId.Value));
+        }
         if (filter.IsActive.HasValue) q = q.Where(i => i.IsActive == filter.IsActive);
+        if (filter.Manufactured.HasValue) q = q.Where(i => i.IsManufactured == filter.Manufactured);
         if (!string.IsNullOrWhiteSpace(filter.Search))
         {
             var term = filter.Search.Trim();
@@ -68,7 +78,12 @@ public sealed class ItemCategoryRepository : IItemCategoryRepository
 
     public async Task<IReadOnlyList<ItemCategory>> ListAsync(Guid organizationId, CancellationToken ct = default) =>
         await _db.ItemCategories.AsNoTracking().Where(c => c.OrganizationId == organizationId)
-            .OrderBy(c => c.Name).ToListAsync(ct);
+            .OrderBy(c => c.SortOrder).ThenBy(c => c.Name).ToListAsync(ct);
+
+    public async Task<Dictionary<Guid, int>> ItemCountsAsync(Guid organizationId, CancellationToken ct = default) =>
+        await _db.Items.AsNoTracking().Where(i => i.OrganizationId == organizationId && i.CategoryId != null)
+            .GroupBy(i => i.CategoryId!.Value).Select(g => new { g.Key, Count = g.Count() })
+            .ToDictionaryAsync(x => x.Key, x => x.Count, ct);
 
     public Task<bool> ExistsAsync(Guid organizationId, Guid id, CancellationToken ct = default) =>
         _db.ItemCategories.AnyAsync(c => c.OrganizationId == organizationId && c.Id == id, ct);
@@ -369,6 +384,7 @@ public sealed class WorkOrderRepository : IWorkOrderRepository
         if (!string.IsNullOrWhiteSpace(filter.Status)) q = q.Where(w => w.Status == filter.Status);
         if (filter.ProjectId.HasValue) q = q.Where(w => w.ProjectId == filter.ProjectId);
         if (filter.WarehouseId.HasValue) q = q.Where(w => w.WarehouseId == filter.WarehouseId);
+        if (filter.MaterialRequirementId.HasValue) q = q.Where(w => w.MaterialRequirementId == filter.MaterialRequirementId);
         var total = await q.LongCountAsync(ct);
         var items = await q.OrderByDescending(w => w.CreatedAt).Skip(filter.Skip).Take(filter.PageSize).ToListAsync(ct);
         return new PagedResult<WorkOrder> { Items = items, TotalItems = total, Page = filter.Page, PageSize = filter.PageSize };

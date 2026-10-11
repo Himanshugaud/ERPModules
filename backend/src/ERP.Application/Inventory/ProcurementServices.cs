@@ -14,6 +14,9 @@ internal static class ProcurementMappers
     {
         Id = r.Id,
         ReqNumber = r.ReqNumber,
+        SheetType = r.SheetType,
+        BlockName = r.BlockName,
+        BlockSize = r.BlockSize,
         ProjectId = r.ProjectId,
         WarehouseId = r.WarehouseId,
         DestinationAddress = r.DestinationAddress,
@@ -39,6 +42,7 @@ internal static class ProcurementMappers
             Qty = l.Qty,
             UomId = l.UomId,
             Notes = l.Notes,
+            SectionName = l.SectionName,
             PurchaseOrderLineId = l.PurchaseOrderLineId
         }).ToList()
     };
@@ -97,6 +101,7 @@ internal static class ProcurementMappers
 public interface IMaterialRequirementService
 {
     Task<MaterialRequirementResponse> CreateAsync(CreateMaterialRequirementRequest request, CancellationToken ct = default);
+    Task DeleteDraftAsync(Guid id, CancellationToken ct = default);
     Task<PagedResult<MaterialRequirementResponse>> ListAsync(MaterialRequirementFilter filter, CancellationToken ct = default);
     Task<MaterialRequirementResponse> GetAsync(Guid id, CancellationToken ct = default);
     Task<MaterialRequirementResponse> ApproveAsync(Guid id, CancellationToken ct = default);
@@ -156,12 +161,15 @@ public sealed class MaterialRequirementService : IMaterialRequirementService
             Id = Guid.NewGuid(),
             OrganizationId = orgId,
             ReqNumber = number,
+            SheetType = string.IsNullOrWhiteSpace(request.SheetType) ? null : request.SheetType.Trim(),
+            BlockName = request.BlockName?.Trim(),
+            BlockSize = request.BlockSize?.Trim(),
             ProjectId = request.ProjectId,
             WarehouseId = request.WarehouseId,
             DestinationAddress = request.DestinationAddress,
             DepartmentId = request.DepartmentId,
             Priority = string.IsNullOrEmpty(request.Priority) ? Priorities.Medium : request.Priority,
-            Status = MaterialRequirementStatuses.Submitted,
+            Status = request.AsDraft ? MaterialRequirementStatuses.Draft : MaterialRequirementStatuses.Submitted,
             RequiredDate = request.RequiredDate,
             RequestedBy = _tenant.UserId,
             Notes = request.Notes,
@@ -181,16 +189,29 @@ public sealed class MaterialRequirementService : IMaterialRequirementService
                     ItemId = line.ItemId,
                     Qty = line.Qty,
                     UomId = line.UomId,
-                    Notes = line.Notes
+                    Notes = line.Notes,
+                    SectionName = line.SectionName?.Trim()
                 });
             }
             _audit.Add(EntityTypes.MaterialRequirement, requirement.Id, AuditActions.Create, null,
                 new { requirement.ReqNumber, LineCount = requirement.Lines.Count });
-            await _statusAdvancer.AdvanceAsync(orgId, requirement.ProjectId, "PLANNING", "INVENTORY_CHECK", token);
+            if (!request.AsDraft)
+                await _statusAdvancer.AdvanceAsync(orgId, requirement.ProjectId, "PLANNING", "INVENTORY_CHECK", token);
             await _uow.SaveChangesAsync(token);
         }, ct);
 
         return ProcurementMappers.ToResponse(requirement);
+    }
+
+    public async Task DeleteDraftAsync(Guid id, CancellationToken ct = default)
+    {
+        var r = await _requirements.GetAsync(_tenant.OrganizationId, id, track: true, ct) ?? throw NotFoundException.For("MaterialRequirement", id);
+        if (r.Status != MaterialRequirementStatuses.Draft)
+            throw new ConflictException($"Only draft estimates can be deleted (current status: {r.Status}).");
+
+        _requirements.Remove(r);
+        _audit.Add(EntityTypes.MaterialRequirement, r.Id, AuditActions.Delete, new { r.ReqNumber }, null);
+        await _uow.SaveChangesAsync(ct);
     }
 
     public async Task<PagedResult<MaterialRequirementResponse>> ListAsync(MaterialRequirementFilter filter, CancellationToken ct = default)
@@ -289,7 +310,7 @@ public sealed class MaterialRequirementService : IMaterialRequirementService
                 if (reqLine.PurchaseOrderLineId.HasValue)
                     throw new ConflictException($"Requirement line {reqLine.Id} has already been converted to a purchase order.");
 
-                var poLine = ProcurementMappers.BuildLine(po.Id, reqLine.ItemId, reqLine.Qty, reqLine.UomId,
+                var poLine = ProcurementMappers.BuildLine(po.Id, reqLine.ItemId, lineRequest.Qty ?? reqLine.Qty, reqLine.UomId,
                     lineRequest.UnitPrice, lineRequest.TaxRatePercent, reqLine.Id);
                 po.Lines.Add(poLine);
             }
@@ -308,7 +329,9 @@ public sealed class MaterialRequirementService : IMaterialRequirementService
                 reqLine.PurchaseOrderLineId = poLine.Id;
             }
 
-            r.Status = MaterialRequirementStatuses.Converted;
+            // Stays APPROVED while some lines are still uncovered, so Supply Chain can raise further POs or ship from stock.
+            if (r.Lines.All(l => l.PurchaseOrderLineId.HasValue))
+                r.Status = MaterialRequirementStatuses.Converted;
             r.PurchaseOrderId = po.Id;
             r.UpdatedAt = _clock.UtcNow;
             r.UpdatedBy = _tenant.UserId;

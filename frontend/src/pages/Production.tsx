@@ -1,15 +1,16 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
-import { api, ApiError, type InventoryItem, type Warehouse, type Bom, type WorkOrder } from "../api/client";
+import { api, ApiError, type InventoryItem, type Warehouse, type Bom, type WorkOrder, type Project } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 
-type Tab = "orders" | "boms";
+type Tab = "fabrication" | "orders" | "boms";
 const woBadge = (s: string) => s === "COMPLETED" ? "green" : s === "RELEASED" ? "blue" : s === "CANCELLED" ? "red" : "gray";
 
 export default function Production() {
   const { user } = useAuth();
   const perms = user?.permissions ?? [];
-  const [tab, setTab] = useState<Tab>("orders");
+  const [tab, setTab] = useState<Tab>("fabrication");
   const [items, setItems] = useState<InventoryItem[]>([]);
+  const [projects, setProjects] = useState<Project[]>([]);
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [boms, setBoms] = useState<Bom[]>([]);
   const [orders, setOrders] = useState<WorkOrder[]>([]);
@@ -20,15 +21,19 @@ export default function Production() {
   const [complete, setComplete] = useState<WorkOrder | null>(null);
 
   const itemMap = useMemo(() => new Map(items.map((i) => [i.id, i])), [items]);
+  const projectMap = useMemo(() => new Map(projects.map((p) => [p.id, p])), [projects]);
+  // Orders raised from published plans that are still to be made.
+  const fabrication = useMemo(() => orders.filter((w) => w.materialRequirementId && (w.status === "DRAFT" || w.status === "RELEASED")), [orders]);
 
   async function load() {
     setLoading(true);
     setError(null);
     try {
-      const [its, whs, bs, wos] = await Promise.all([
-        api.items({ pageSize: 200 }), api.warehouses(), api.boms({ pageSize: 100 }), api.workOrders({ pageSize: 100 })
+      const [its, whs, bs, wos, prj] = await Promise.all([
+        api.allItems(), api.warehouses(), api.boms({ pageSize: 100 }), api.workOrders({ pageSize: 100 }), api.projects({ pageSize: 100 })
       ]);
       setItems(its.data);
+      setProjects(prj.data);
       setWarehouses(whs);
       setBoms(bs.data);
       setOrders(wos.data);
@@ -61,6 +66,7 @@ export default function Production() {
 
       <div className="topbar" style={{ padding: 0, border: "none", background: "none", marginBottom: 12 }}>
         <div className="tabs">
+          <span className={`tab ${tab === "fabrication" ? "active" : ""}`} style={{ cursor: "pointer" }} onClick={() => setTab("fabrication")}>Fabrication List{fabrication.length > 0 && <span className="badge blue" style={{ marginLeft: 6 }}>{fabrication.length}</span>}</span>
           <span className={`tab ${tab === "orders" ? "active" : ""}`} style={{ cursor: "pointer" }} onClick={() => setTab("orders")}>Work Orders</span>
           <span className={`tab ${tab === "boms" ? "active" : ""}`} style={{ cursor: "pointer" }} onClick={() => setTab("boms")}>Bills of Materials</span>
         </div>
@@ -69,7 +75,29 @@ export default function Production() {
       {error && <div className="form-error" style={{ marginBottom: 12 }}>{error}</div>}
 
       <div className="table-wrap">
-        {tab === "orders" ? (
+        {tab === "fabrication" ? (
+          <table>
+            <thead><tr><th>WO #</th><th>Item to fabricate</th><th>Qty</th><th>For project</th><th>Needed by</th><th>Status</th><th></th></tr></thead>
+            <tbody>
+              {loading ? <tr><td colSpan={7}><div className="empty">Loading…</div></td></tr>
+                : fabrication.length === 0 ? <tr><td colSpan={7}><div className="empty">Nothing to fabricate. Factory-made items missing from stock appear here when Planning publishes a plan.</div></td></tr>
+                : fabrication.map((w) => (
+                  <tr key={w.id}>
+                    <td className="cell-code">{w.woNumber}</td>
+                    <td style={{ fontWeight: 600 }}>{itemMap.get(w.outputItemId)?.name ?? "—"}<div className="cell-code">{itemMap.get(w.outputItemId)?.code}</div></td>
+                    <td>{w.plannedQty}</td>
+                    <td>{w.projectId ? <>{projectMap.get(w.projectId)?.name ?? "—"}<div className="cell-code">{projectMap.get(w.projectId)?.code}</div></> : "—"}</td>
+                    <td>{w.startDate ?? "—"}</td>
+                    <td><span className={`badge ${woBadge(w.status)}`}>{w.status === "DRAFT" ? "To start" : "In fabrication"}</span></td>
+                    <td style={{ textAlign: "right" }}>
+                      {w.status === "DRAFT" && perms.includes("workorder.release") && <button className="btn btn-sm primary" onClick={() => doRelease(w)}>Start fabrication</button>}
+                      {w.status === "RELEASED" && perms.includes("workorder.complete") && <button className="btn btn-sm primary" onClick={() => setComplete(w)}>Mark complete</button>}
+                    </td>
+                  </tr>
+                ))}
+            </tbody>
+          </table>
+        ) : tab === "orders" ? (
           <table>
             <thead><tr><th>WO #</th><th>Output Item</th><th>Planned</th><th>Produced</th><th>Status</th><th></th></tr></thead>
             <tbody>

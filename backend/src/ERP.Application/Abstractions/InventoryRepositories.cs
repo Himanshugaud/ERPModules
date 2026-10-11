@@ -10,6 +10,7 @@ public sealed class ItemFilter : PageRequest
     public string? Search { get; set; }
     public bool? LowStock { get; set; }
     public bool? IsActive { get; set; }
+    public bool? Manufactured { get; set; }
 }
 
 public sealed class SupplierFilter : PageRequest
@@ -54,6 +55,7 @@ public sealed class WorkOrderFilter : PageRequest
     public string? Status { get; set; }
     public Guid? ProjectId { get; set; }
     public Guid? WarehouseId { get; set; }
+    public Guid? MaterialRequirementId { get; set; }
 }
 
 public interface IItemRepository
@@ -68,6 +70,7 @@ public interface IItemRepository
 public interface IItemCategoryRepository
 {
     Task<IReadOnlyList<ItemCategory>> ListAsync(Guid organizationId, CancellationToken ct = default);
+    Task<Dictionary<Guid, int>> ItemCountsAsync(Guid organizationId, CancellationToken ct = default);
     Task<bool> ExistsAsync(Guid organizationId, Guid id, CancellationToken ct = default);
     Task<bool> CodeExistsAsync(Guid organizationId, string code, Guid? excludeId, CancellationToken ct = default);
     Task AddAsync(ItemCategory category, CancellationToken ct = default);

@@ -40,6 +40,7 @@ public class WorkOrder
     public decimal ScrapQty { get; set; }
     public Guid WarehouseId { get; set; }
     public Guid? ProjectId { get; set; }
+    public Guid? MaterialRequirementId { get; set; }
     public string Status { get; set; } = "DRAFT";
     public DateOnly? StartDate { get; set; }
     public DateOnly? EndDate { get; set; }

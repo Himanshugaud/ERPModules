@@ -8,6 +8,7 @@ public class ItemCategory
     public string Name { get; set; } = default!;
     public string? Description { get; set; }
     public Guid? ParentCategoryId { get; set; }
+    public int SortOrder { get; set; }
     public bool IsActive { get; set; } = true;
     public DateTime CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
@@ -218,6 +219,13 @@ public class StockTransfer
     public Guid? ProjectId { get; set; }
     public Guid? MaterialRequirementId { get; set; }
     public string? TransportId { get; set; }
+    public string? TransporterName { get; set; }
+    public string? VehicleNumber { get; set; }
+    public string? VehicleType { get; set; }
+    public string? DriverName { get; set; }
+    public string? DriverPhone { get; set; }
+    public DateOnly? ExpectedDeliveryDate { get; set; }
+    public string? DispatchNotes { get; set; }
     public string Status { get; set; } = "REQUESTED";
     public DateOnly? TransferDate { get; set; }
     public string? Notes { get; set; }

@@ -20,10 +20,11 @@ const navInventory: NavItem[] = [
   { to: "/inventory/production", label: "Production", ico: "⚒", permissions: ["bom.read", "workorder.read"] },
   { to: "/inventory/warehouses", label: "Warehouses", ico: "🏬", permissions: ["warehouse.read"] },
   { to: "/inventory/suppliers", label: "Suppliers", ico: "🚚", permissions: ["supplier.read"] },
-  { to: "/inventory/requests", label: "Material Requests", ico: "📋", permissions: ["materialrequirement.approve", "materialrequirement.read"] }
+  { to: "/inventory/requests", label: "Material Requests", ico: "📋", permissions: ["materialrequirement.approve", "materialrequirement.read"] },
+  { to: "/inventory/purchase-orders", label: "Purchase Orders", ico: "🧾", permissions: ["purchaseorder.read"] }
 ];
 const navFulfillment: NavItem[] = [
-  { to: "/shipment", label: "Shipment", ico: "🚚", permissions: ["transfer.dispatch", "transfer.receive"] }
+  { to: "/shipment", label: "Transport", ico: "🚚", permissions: ["transfer.dispatch", "transfer.receive"] }
 ];
 const navCore: NavItem[] = [
   { to: "/core", label: "Core", ico: "◈", roles: ["SUPER_ADMIN", "Administrator"] },

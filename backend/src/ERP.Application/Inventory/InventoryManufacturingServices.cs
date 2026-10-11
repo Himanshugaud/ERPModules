@@ -315,6 +315,7 @@ public sealed class WorkOrderService : IWorkOrderService
         ScrapQty = w.ScrapQty,
         WarehouseId = w.WarehouseId,
         ProjectId = w.ProjectId,
+        MaterialRequirementId = w.MaterialRequirementId,
         Status = w.Status,
         StartDate = w.StartDate,
         EndDate = w.EndDate,

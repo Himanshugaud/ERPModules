@@ -1,6 +1,8 @@
 using ERP.Application.Clients;
+using ERP.Application.Documents;
 using ERP.Application.Identity;
 using ERP.Application.Inventory;
+using ERP.Application.Planning;
 using ERP.Application.Projects;
 using ERP.Application.Tasks;
 using FluentValidation;
@@ -16,6 +18,7 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<IProjectService, ProjectService>();
         services.AddScoped<IProjectMemberService, ProjectMemberService>();
         services.AddScoped<IProjectStatusAdvancer, ProjectStatusAdvancer>();
+        services.AddScoped<IFabricationPlanner, FabricationPlanner>();
         services.AddScoped<ITaskService, TaskService>();
         services.AddScoped<IAuthService, AuthService>();
         services.AddScoped<IUserService, UserService>();
@@ -38,6 +41,10 @@ public static class ApplicationServiceCollectionExtensions
         // Procurement
         services.AddScoped<IMaterialRequirementService, MaterialRequirementService>();
         services.AddScoped<IPurchaseOrderService, PurchaseOrderService>();
+
+        // Workflow (attachments, calendar planner, publish)
+        services.AddScoped<IDocumentService, DocumentService>();
+        services.AddScoped<IProjectPlanService, ProjectPlanService>();
         return services;
     }
 }

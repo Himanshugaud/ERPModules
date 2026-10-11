@@ -7,11 +7,15 @@ public sealed class MaterialRequirementLineRequest
     public decimal Qty { get; set; }
     public Guid? UomId { get; set; }
     public string? Notes { get; set; }
+    public string? SectionName { get; set; }
 }
 
 public sealed class CreateMaterialRequirementRequest
 {
     public string? ReqNumber { get; set; }
+    public string? SheetType { get; set; }
+    public string? BlockName { get; set; }
+    public string? BlockSize { get; set; }
     public Guid ProjectId { get; set; }
     public Guid? WarehouseId { get; set; }
     public string? DestinationAddress { get; set; }
@@ -19,6 +23,8 @@ public sealed class CreateMaterialRequirementRequest
     public string? Priority { get; set; }
     public DateOnly? RequiredDate { get; set; }
     public string? Notes { get; set; }
+    // Planning saves estimates as drafts until the plan is published to Supply Chain.
+    public bool AsDraft { get; set; }
     public List<MaterialRequirementLineRequest> Lines { get; set; } = new();
 }
 
@@ -30,6 +36,8 @@ public sealed class RejectMaterialRequirementRequest
 public sealed class ConvertRequirementLineRequest
 {
     public Guid MaterialRequirementLineId { get; set; }
+    // Optional: order only the shortage instead of the full requested quantity.
+    public decimal? Qty { get; set; }
     public decimal UnitPrice { get; set; }
     public decimal TaxRatePercent { get; set; }
 }
@@ -51,6 +59,7 @@ public sealed class MaterialRequirementLineResponse
     public decimal Qty { get; set; }
     public Guid? UomId { get; set; }
     public string? Notes { get; set; }
+    public string? SectionName { get; set; }
     public Guid? PurchaseOrderLineId { get; set; }
 }
 
@@ -58,6 +67,9 @@ public sealed class MaterialRequirementResponse
 {
     public Guid Id { get; set; }
     public string ReqNumber { get; set; } = default!;
+    public string? SheetType { get; set; }
+    public string? BlockName { get; set; }
+    public string? BlockSize { get; set; }
     public Guid ProjectId { get; set; }
     public Guid? WarehouseId { get; set; }
     public string? DestinationAddress { get; set; }

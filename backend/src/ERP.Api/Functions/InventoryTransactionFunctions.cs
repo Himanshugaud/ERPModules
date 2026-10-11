@@ -108,12 +108,15 @@ public sealed class StockTransfersFunctions
     private readonly IStockTransferService _service;
     private readonly IAuthorizationGuard _auth;
     private readonly IValidator<CreateStockTransferRequest> _validator;
+    private readonly IValidator<DispatchStockTransferRequest> _dispatchValidator;
 
-    public StockTransfersFunctions(IStockTransferService service, IAuthorizationGuard auth, IValidator<CreateStockTransferRequest> validator)
+    public StockTransfersFunctions(IStockTransferService service, IAuthorizationGuard auth, IValidator<CreateStockTransferRequest> validator,
+        IValidator<DispatchStockTransferRequest> dispatchValidator)
     {
         _service = service;
         _auth = auth;
         _validator = validator;
+        _dispatchValidator = dispatchValidator;
     }
 
     [Function("CreateStockTransfer")]
@@ -162,7 +165,8 @@ public sealed class StockTransfersFunctions
         [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "v1/stock-transfers/{id:guid}/dispatch")] HttpRequest req, Guid id, CancellationToken ct)
     {
         _auth.Require(Permissions.TransferDispatch);
-        return Http.Ok(await _service.DispatchAsync(id, ct));
+        var body = await Http.ReadValidatedAsync(req, _dispatchValidator, ct);
+        return Http.Ok(await _service.DispatchAsync(id, body, ct));
     }
 
     [Function("ReceiveStockTransfer")]

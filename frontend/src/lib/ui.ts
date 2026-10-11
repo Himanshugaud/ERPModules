@@ -62,3 +62,21 @@ export function formatDateTime(iso?: string): string {
   return d.toLocaleString(undefined, { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
+
+export function formatFileSize(bytes?: number): string {
+  if (!bytes || bytes < 0) return "—";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+export function fileIcon(name: string): string {
+  const ext = name.split(".").pop()?.toLowerCase() ?? "";
+  if (["pdf"].includes(ext)) return "📕";
+  if (["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp"].includes(ext)) return "🖼";
+  if (["xls", "xlsx", "csv"].includes(ext)) return "📊";
+  if (["doc", "docx", "txt", "rtf", "md"].includes(ext)) return "📄";
+  if (["dwg", "dxf", "rvt", "skp"].includes(ext)) return "📐";
+  if (["zip", "rar", "7z"].includes(ext)) return "🗜";
+  return "📎";
+}

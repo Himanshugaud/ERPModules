@@ -2,9 +2,10 @@ import { useEffect, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
 import {
   api, ApiError,
-  type MaterialRequirement, type Warehouse, type InventoryItem, type Project, type UserItem, type Uom, type StockLevel, type InventoryDocument
+  type MaterialRequirement, type Warehouse, type InventoryItem, type Project, type UserItem, type Uom, type StockLevel, type InventoryDocument, type Supplier, type PurchaseOrder, type WorkOrder
 } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
+import { downloadRequirementXlsx } from "../lib/sheetExcel";
 import { formatDate, formatDateTime } from "../lib/ui";
 
 type ArrangeLine = { itemId: string; uomId?: string; requestedQty: number; remainingQty: number; shipQty: string; include: boolean };
@@ -13,6 +14,7 @@ export default function InventoryRequests() {
   const { user } = useAuth();
   const canApprove = (user?.permissions ?? []).includes("materialrequirement.approve");
   const canArrange = (user?.permissions ?? []).includes("transfer.create");
+  const canConvert = (user?.permissions ?? []).includes("materialrequirement.convert");
   const [requirements, setRequirements] = useState<MaterialRequirement[]>([]);
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [items, setItems] = useState<InventoryItem[]>([]);
@@ -26,6 +28,7 @@ export default function InventoryRequests() {
   const [rejecting, setRejecting] = useState<MaterialRequirement | null>(null);
   const [arranging, setArranging] = useState<MaterialRequirement | null>(null);
   const [viewing, setViewing] = useState<MaterialRequirement | null>(null);
+  const [creatingPo, setCreatingPo] = useState<MaterialRequirement | null>(null);
 
   const warehouseMap = Object.fromEntries(warehouses.map((w) => [w.id, w]));
   const projectMap = Object.fromEntries(projects.map((p) => [p.id, p]));
@@ -54,7 +57,7 @@ export default function InventoryRequests() {
 
   useEffect(() => {
     api.warehouses().then(setWarehouses).catch(() => setWarehouses([]));
-    api.items({ pageSize: 200 }).then((r) => setItems(r.data)).catch(() => setItems([]));
+    api.allItems().then((r) => setItems(r.data)).catch(() => setItems([]));
     api.uoms().then(setUoms).catch(() => setUoms([]));
     api.projects({ pageSize: 200 }).then((r) => setProjects(r.data)).catch(() => setProjects([]));
     api.users().then(setUsers).catch(() => setUsers([]));
@@ -62,17 +65,28 @@ export default function InventoryRequests() {
   }, []);
   useEffect(() => { load(); }, [status]);
 
+  async function approveOnly(r: MaterialRequirement) {
+    setError(null);
+    try {
+      await api.approveMaterialRequirement(r.id);
+      await load();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Unable to approve the request.");
+    }
+  }
+
   return (
     <>
       <div className="page-head">
         <div>
           <h1 className="page-title">Material Requests</h1>
-          <div className="page-sub">Review estimates from Planning, approve them, and arrange stock for shipment.</div>
+          <div className="page-sub">Review published plans from Planning. Ship from warehouse stock, or raise a purchase order for what is missing and ship once it is received.</div>
         </div>
         <div className="head-actions">
           <select value={status} onChange={(e) => setStatus(e.target.value)}>
             <option value="SUBMITTED">Pending Review</option>
-            <option value="APPROVED">Approved (ready to arrange)</option>
+            <option value="APPROVED">Approved (arrange stock / raise PO)</option>
+            <option value="CONVERTED">PO raised (ship when received)</option>
             <option value="REJECTED">Rejected</option>
             <option value="">All</option>
           </select>
@@ -110,11 +124,15 @@ export default function InventoryRequests() {
                     <div className="row-actions">
                       {r.status === "SUBMITTED" && canApprove && (
                         <>
-                          <button className="btn btn-sm primary" onClick={(e) => { e.stopPropagation(); setArranging(r); }}>Approve</button>
+                          <button className="btn btn-sm primary" onClick={(e) => { e.stopPropagation(); setArranging(r); }}>Approve &amp; Arrange</button>
+                          <button className="btn btn-sm" onClick={(e) => { e.stopPropagation(); approveOnly(r); }}>Approve</button>
                           <button className="btn btn-sm danger" onClick={(e) => { e.stopPropagation(); setRejecting(r); }}>Reject</button>
                         </>
                       )}
-                      {r.status === "APPROVED" && canArrange && (
+                      {r.status === "APPROVED" && canConvert && (
+                        <button className="btn btn-sm" onClick={(e) => { e.stopPropagation(); setCreatingPo(r); }}>Create PO</button>
+                      )}
+                      {(r.status === "APPROVED" || r.status === "CONVERTED") && canArrange && (
                         <button className="btn btn-sm primary" onClick={(e) => { e.stopPropagation(); setArranging(r); }}>Arrange Shipment</button>
                       )}
                     </div>
@@ -157,9 +175,24 @@ export default function InventoryRequests() {
           stockByItem={stockByItem}
           canApprove={canApprove}
           canArrange={canArrange}
+          canConvert={canConvert}
           onClose={() => setViewing(null)}
           onReject={() => { setRejecting(viewing); setViewing(null); }}
           onArrange={() => { setArranging(viewing); setViewing(null); }}
+          onApproveOnly={async () => { const r = viewing; setViewing(null); await approveOnly(r); }}
+          onCreatePo={() => { setCreatingPo(viewing); setViewing(null); }}
+        />
+      )}
+
+      {creatingPo && (
+        <CreatePoModal
+          requirement={creatingPo}
+          warehouses={warehouses}
+          items={items}
+          uoms={uoms}
+          stockByItem={stockByItem}
+          onClose={() => setCreatingPo(null)}
+          onCreated={async () => { setCreatingPo(null); await load(); }}
         />
       )}
     </>
@@ -176,16 +209,30 @@ function RequestDetailModal(props: {
   stockByItem: Record<string, number>;
   canApprove: boolean;
   canArrange: boolean;
+  canConvert: boolean;
   onClose: () => void;
   onReject: () => void;
   onArrange: () => void;
+  onApproveOnly: () => void;
+  onCreatePo: () => void;
 }) {
   const r = props.requirement;
+  const { user } = useAuth();
   const itemMap = Object.fromEntries(props.items.map((it) => [it.id, it]));
   const uomMap = Object.fromEntries(props.uoms.map((u) => [u.id, u]));
   const userMap = Object.fromEntries(props.users.map((u) => [u.id, u]));
   const [shipments, setShipments] = useState<InventoryDocument[]>([]);
   const [loadingShipments, setLoadingShipments] = useState(true);
+  const [po, setPo] = useState<PurchaseOrder | null>(null);
+  const [fabOrders, setFabOrders] = useState<WorkOrder[]>([]);
+
+  useEffect(() => {
+    api.workOrders({ materialRequirementId: r.id, pageSize: 50 }).then((res) => setFabOrders(res.data)).catch(() => setFabOrders([]));
+  }, [r.id]);
+  useEffect(() => {
+    if (!r.purchaseOrderId) { setPo(null); return; }
+    api.purchaseOrder(r.purchaseOrderId).then(setPo).catch(() => setPo(null));
+  }, [r.purchaseOrderId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -203,7 +250,9 @@ function RequestDetailModal(props: {
     { label: "Priority", value: r.priority },
     { label: "Required Date", value: formatDate(r.requiredDate) },
     { label: "Requested By", value: requesterName },
-    { label: "Created", value: formatDateTime(r.createdAt) }
+    { label: "Created", value: formatDateTime(r.createdAt) },
+    ...(r.blockName ? [{ label: "Block", value: `${r.blockName}${r.blockSize ? ` (${r.blockSize})` : ""}` }] : []),
+    ...(r.purchaseOrderId ? [{ label: "Purchase Order", value: po ? `${po.poNumber} · ${po.status.replace(/_/g, " ")}` : "…" }] : [])
   ];
 
   return (
@@ -243,7 +292,7 @@ function RequestDetailModal(props: {
           <label style={{ fontSize: 13, fontWeight: 600, marginTop: 18, display: "block" }}>Materials</label>
           <div className="table-wrap" style={{ marginTop: 6 }}>
             <table>
-              <thead><tr><th>Item</th><th>Qty</th><th>UOM</th><th>Note</th><th>Stock Available</th></tr></thead>
+              <thead><tr><th>Item</th>{r.sheetType && <th>Section</th>}<th>Qty</th><th>UOM</th><th>Note</th><th>Stock Available</th></tr></thead>
               <tbody>
                 {r.lines.map((l) => {
                   const available = props.stockByItem[l.itemId] ?? 0;
@@ -251,19 +300,41 @@ function RequestDetailModal(props: {
                   return (
                     <tr key={l.id}>
                       <td>
-                        <div className="cell-title">{itemMap[l.itemId]?.name ?? l.itemId}</div>
+                        <div className="cell-title">{itemMap[l.itemId]?.name ?? l.itemId}{itemMap[l.itemId]?.isManufactured && <span className="badge blue" style={{ marginLeft: 6, padding: "1px 7px", fontSize: 11 }}>Fabricated</span>}</div>
                         <div className="cell-code">{itemMap[l.itemId]?.code ?? ""}</div>
                       </td>
+                      {r.sheetType && <td>{l.sectionName ?? "—"}</td>}
                       <td>{l.qty}</td>
                       <td>{uomMap[l.uomId ?? ""]?.code ?? "—"}</td>
                       <td>{l.notes || "—"}</td>
-                      <td><span className={`badge ${cls}`}>{available} available</span></td>
+                      <td><span className={`badge ${cls}`}>{available} in stock{available < l.qty ? ` · short ${l.qty - available}` : ""}</span></td>
                     </tr>
                   );
                 })}
               </tbody>
             </table>
           </div>
+
+          {fabOrders.length > 0 && (
+            <>
+              <label style={{ fontSize: 13, fontWeight: 600, marginTop: 18, display: "block" }}>Fabrication list (factory-made items)</label>
+              <div className="table-wrap" style={{ marginTop: 6 }}>
+                <table>
+                  <thead><tr><th>WO #</th><th>Item</th><th>Qty to make</th><th>Status</th></tr></thead>
+                  <tbody>
+                    {fabOrders.map((w) => (
+                      <tr key={w.id}>
+                        <td className="cell-code">{w.woNumber}</td>
+                        <td>{itemMap[w.outputItemId]?.name ?? w.outputItemId}</td>
+                        <td>{w.plannedQty}</td>
+                        <td><span className={`badge ${w.status === "COMPLETED" ? "green" : w.status === "RELEASED" ? "blue" : "gray"}`}>{w.status === "DRAFT" ? "To start" : w.status === "RELEASED" ? "In fabrication" : w.status}</span></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
 
           <label style={{ fontSize: 13, fontWeight: 600, marginTop: 18, display: "block" }}>Shipment history</label>
           {loadingShipments ? (
@@ -290,13 +361,25 @@ function RequestDetailModal(props: {
         </div>
         <div className="modal-foot">
           <button type="button" className="btn" onClick={props.onClose}>Close</button>
+          <button type="button" className="btn" onClick={() => downloadRequirementXlsx(r, {
+            orgName: user?.organizationName ?? "",
+            projectName: props.project?.name ?? "",
+            projectCode: props.project?.code ?? "",
+            items: props.items,
+            uoms: props.uoms,
+            sheetTypeName: r.sheetType
+          })}>⭳ Excel</button>
           {r.status === "SUBMITTED" && props.canApprove && (
             <>
               <button className="btn danger" onClick={props.onReject}>Reject</button>
-              <button className="btn primary" onClick={props.onArrange}>Approve & Arrange Shipment</button>
+              <button className="btn" onClick={props.onApproveOnly}>Approve</button>
+              <button className="btn primary" onClick={props.onArrange}>Approve &amp; Arrange Shipment</button>
             </>
           )}
-          {r.status === "APPROVED" && props.canArrange && (
+          {r.status === "APPROVED" && props.canConvert && (
+            <button className="btn" onClick={props.onCreatePo}>Create Purchase Order</button>
+          )}
+          {(r.status === "APPROVED" || r.status === "CONVERTED") && props.canArrange && (
             <button className="btn primary" onClick={props.onArrange}>Arrange Shipment</button>
           )}
         </div>
@@ -348,6 +431,122 @@ function RejectModal(props: { requirement: MaterialRequirement; onClose: () => v
   );
 }
 
+function CreatePoModal(props: { requirement: MaterialRequirement; warehouses: Warehouse[]; items: InventoryItem[]; uoms: Uom[]; stockByItem: Record<string, number>; onClose: () => void; onCreated: () => void }) {
+  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [supplierId, setSupplierId] = useState("");
+  const defaultWarehouse = props.warehouses.find((w) => w.id === props.requirement.warehouseId) ?? props.warehouses.find((w) => w.warehouseType === "MAIN_STORE") ?? props.warehouses[0];
+  const [warehouseId, setWarehouseId] = useState(defaultWarehouse?.id ?? "");
+  const [expectedDate, setExpectedDate] = useState(props.requirement.requiredDate ?? "");
+  const [notes, setNotes] = useState("");
+  const itemMap = Object.fromEntries(props.items.map((it) => [it.id, it]));
+  const uomMap = Object.fromEntries(props.uoms.map((u) => [u.id, u]));
+  // Factory-made items go on the fabrication list, not to suppliers.
+  const open = props.requirement.lines.filter((l) => !l.purchaseOrderLineId && !itemMap[l.itemId]?.isManufactured);
+  const [rows, setRows] = useState(() => open.map((l) => {
+    const shortage = Math.max(0, l.qty - (props.stockByItem[l.itemId] ?? 0));
+    return { lineId: l.id, itemId: l.itemId, requested: l.qty, include: shortage > 0, qty: String(shortage > 0 ? shortage : l.qty), unitPrice: String(props.items.find((it) => it.id === l.itemId)?.standardCost ?? ""), tax: "18" };
+  }));
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => { api.suppliers({ pageSize: 200 }).then((r) => setSuppliers(r.data)).catch(() => setSuppliers([])); }, []);
+
+  const setRow = (id: string, patch: Partial<(typeof rows)[number]>) => setRows((rs) => rs.map((r) => (r.lineId === id ? { ...r, ...patch } : r)));
+  const selected = rows.filter((r) => r.include);
+  const total = selected.reduce((s, r) => s + Number(r.qty || 0) * Number(r.unitPrice || 0) * (1 + Number(r.tax || 0) / 100), 0);
+
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    setError(null);
+    if (!supplierId) { setError("Choose a supplier."); return; }
+    if (!selected.length) { setError("Select at least one material to order."); return; }
+    if (selected.some((r) => !(Number(r.qty) > 0) || r.unitPrice === "" || Number(r.unitPrice) < 0)) { setError("Enter a quantity and unit price for every selected material."); return; }
+    setSaving(true);
+    try {
+      await api.convertMaterialRequirementToPo(props.requirement.id, {
+        supplierId,
+        warehouseId: warehouseId || undefined,
+        expectedDate: expectedDate || undefined,
+        notes: notes.trim() || undefined,
+        lines: selected.map((r) => ({ materialRequirementLineId: r.lineId, qty: Number(r.qty), unitPrice: Number(r.unitPrice), taxRatePercent: Number(r.tax || 0) }))
+      });
+      props.onCreated();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Unable to create the purchase order.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="modal-overlay" onClick={props.onClose}>
+      <form className="modal" onClick={(e) => e.stopPropagation()} onSubmit={submit} style={{ maxWidth: 820 }}>
+        <div className="modal-head">
+          <h3>Create Purchase Order · {props.requirement.reqNumber}</h3>
+          <button type="button" className="icon-btn" onClick={props.onClose}>✕</button>
+        </div>
+        <div className="modal-body">
+          {error && <div className="form-error">{error}</div>}
+          <div className="row2">
+            <div className="field">
+              <label>Supplier *</label>
+              <select value={supplierId} onChange={(e) => setSupplierId(e.target.value)} required>
+                <option value="">Select supplier…</option>
+                {suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+            </div>
+            <div className="field">
+              <label>Receive into warehouse</label>
+              <select value={warehouseId} onChange={(e) => setWarehouseId(e.target.value)}>
+                <option value="">—</option>
+                {props.warehouses.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
+              </select>
+            </div>
+          </div>
+          <div className="row2">
+            <div className="field"><label>Expected delivery</label><input type="date" value={expectedDate} onChange={(e) => setExpectedDate(e.target.value)} /></div>
+            <div className="field"><label>Notes</label><input value={notes} onChange={(e) => setNotes(e.target.value)} maxLength={500} /></div>
+          </div>
+          <label style={{ fontSize: 13, fontWeight: 600 }}>Materials to order <span className="muted" style={{ fontWeight: 400 }}>· quantities default to what is missing from stock</span></label>
+          {rows.length === 0 ? (
+            <div className="empty" style={{ padding: 20 }}>Every line already has a purchase order.</div>
+          ) : (
+            <div className="table-wrap" style={{ marginTop: 6 }}>
+              <table>
+                <thead><tr><th></th><th>Item</th><th>Requested</th><th>In stock</th><th>Order qty</th><th>Unit price</th><th>Tax %</th></tr></thead>
+                <tbody>
+                  {rows.map((r) => {
+                    const inStock = props.stockByItem[r.itemId] ?? 0;
+                    return (
+                      <tr key={r.lineId}>
+                        <td><input type="checkbox" checked={r.include} onChange={() => setRow(r.lineId, { include: !r.include })} /></td>
+                        <td>
+                          <div className="cell-title">{itemMap[r.itemId]?.name ?? r.itemId}</div>
+                          <div className="cell-code">{itemMap[r.itemId]?.code ?? ""}{uomMap[props.requirement.lines.find((l) => l.id === r.lineId)?.uomId ?? ""]?.code ? ` · ${uomMap[props.requirement.lines.find((l) => l.id === r.lineId)?.uomId ?? ""].code}` : ""}</div>
+                        </td>
+                        <td>{r.requested}</td>
+                        <td><span className={`badge ${inStock >= r.requested ? "green" : inStock > 0 ? "amber" : "red"}`}>{inStock}</span></td>
+                        <td><input type="number" min={0} step="0.01" value={r.qty} disabled={!r.include} onChange={(e) => setRow(r.lineId, { qty: e.target.value })} style={{ width: 90 }} /></td>
+                        <td><input type="number" min={0} step="0.01" value={r.unitPrice} disabled={!r.include} onChange={(e) => setRow(r.lineId, { unitPrice: e.target.value })} style={{ width: 100 }} /></td>
+                        <td><input type="number" min={0} step="0.01" value={r.tax} disabled={!r.include} onChange={(e) => setRow(r.lineId, { tax: e.target.value })} style={{ width: 70 }} /></td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+          <div style={{ textAlign: "right", marginTop: 10, fontWeight: 600 }}>Estimated total: {total.toLocaleString(undefined, { maximumFractionDigits: 2 })}</div>
+        </div>
+        <div className="modal-foot">
+          <button type="button" className="btn" onClick={props.onClose}>Cancel</button>
+          <button className="btn primary" disabled={saving || rows.length === 0}>{saving ? <span className="spinner" /> : "Create purchase order"}</button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
 function ArrangeTransferModal(props: { requirement: MaterialRequirement; warehouses: Warehouse[]; items: InventoryItem[]; uoms: Uom[]; stockByItemWarehouse: Record<string, number>; onClose: () => void; onArranged: () => void }) {
   const needsApproval = props.requirement.status === "SUBMITTED";
   const linkedDestination = props.warehouses.find((w) => w.id === props.requirement.warehouseId);
@@ -356,7 +555,6 @@ function ArrangeTransferModal(props: { requirement: MaterialRequirement; warehou
   const [fromWarehouseId, setFromWarehouseId] = useState(defaultSourceWarehouse?.id ?? "");
   const [sourceAddress, setSourceAddress] = useState(defaultSourceWarehouse ? (defaultSourceWarehouse.address ? `${defaultSourceWarehouse.name} — ${defaultSourceWarehouse.address}` : defaultSourceWarehouse.name) : "");
   const [toWarehouseId, setToWarehouseId] = useState(linkedDestination?.id ?? "");
-  const [transportId, setTransportId] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [loadingHistory, setLoadingHistory] = useState(true);
@@ -407,7 +605,6 @@ function ArrangeTransferModal(props: { requirement: MaterialRequirement; warehou
     setError(null);
     if (!sourceAddress.trim()) { setError("Enter the source — a warehouse or a supplier address."); return; }
     if (!toWarehouseId) { setError("Choose a warehouse to ship to."); return; }
-    if (!transportId.trim()) { setError("A transport ID is required for every shipment."); return; }
     const selected = lines.filter((l) => l.include && Number(l.shipQty) > 0);
     if (!selected.length) { setError("Select at least one material with a quantity to ship."); return; }
     if (shortfalls.length) { setError("Stock is not available for all selected materials at the chosen warehouse. Adjust quantities, pick another warehouse, or source from a supplier address."); return; }
@@ -420,7 +617,6 @@ function ArrangeTransferModal(props: { requirement: MaterialRequirement; warehou
         toWarehouseId,
         projectId: props.requirement.projectId,
         materialRequirementId: props.requirement.id,
-        transportId: transportId.trim(),
         lines: selected.map((l) => ({ itemId: l.itemId, qty: Number(l.shipQty), uomId: l.uomId }))
       });
       await api.approveStockTransfer(transfer.id);
@@ -467,9 +663,8 @@ function ArrangeTransferModal(props: { requirement: MaterialRequirement; warehou
           {!fromWarehouseId && (
             <div className="muted" style={{ fontSize: 12, marginTop: -8, marginBottom: 14 }}>Sourcing from an external address — stock availability can't be verified automatically.</div>
           )}
-          <div className="field">
-            <label>Transport ID *</label>
-            <input value={transportId} onChange={(e) => setTransportId(e.target.value)} required placeholder="Vehicle / LR / e-way bill no." />
+          <div className="muted" style={{ fontSize: 12, marginBottom: 14 }}>
+            Once arranged, this shipment goes to the Transport team, who assign the vehicle and driver and dispatch it to site.
           </div>
           <label style={{ fontSize: 13, fontWeight: 600 }}>
             Materials to ship <span className="muted" style={{ fontWeight: 400 }}>· uncheck or reduce qty for a partial shipment</span>

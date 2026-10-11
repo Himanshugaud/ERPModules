@@ -92,7 +92,8 @@ public sealed class WorkOrdersFunctions
             PageSize = Http.IntQuery(req, "pageSize") ?? 25,
             Status = Http.StringQuery(req, "status"),
             ProjectId = Http.GuidQuery(req, "projectId"),
-            WarehouseId = Http.GuidQuery(req, "warehouseId")
+            WarehouseId = Http.GuidQuery(req, "warehouseId"),
+            MaterialRequirementId = Http.GuidQuery(req, "materialRequirementId")
         };
         return Http.Paged(await _service.ListAsync(filter, ct));
     }

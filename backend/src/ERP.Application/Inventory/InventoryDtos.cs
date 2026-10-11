@@ -145,6 +145,8 @@ public sealed class ItemCategoryResponse
     public string Code { get; set; } = default!;
     public string Name { get; set; } = default!;
     public Guid? ParentCategoryId { get; set; }
+    public int SortOrder { get; set; }
+    public int ItemCount { get; set; }
     public bool IsActive { get; set; }
 }
 
@@ -314,4 +316,23 @@ public sealed class InventoryDocumentResponse
     public DateTime? DispatchedAt { get; set; }
     public Guid? ReceivedBy { get; set; }
     public DateTime? ReceivedAt { get; set; }
+    public string? TransporterName { get; set; }
+    public string? VehicleNumber { get; set; }
+    public string? VehicleType { get; set; }
+    public string? DriverName { get; set; }
+    public string? DriverPhone { get; set; }
+    public DateOnly? ExpectedDeliveryDate { get; set; }
+    public string? DispatchNotes { get; set; }
+}
+
+/// <summary>Filled in by the Transport team when a vehicle is arranged and the shipment leaves for site.</summary>
+public sealed class DispatchStockTransferRequest
+{
+    public string? TransporterName { get; set; }
+    public string VehicleNumber { get; set; } = default!;
+    public string? VehicleType { get; set; }
+    public string DriverName { get; set; } = default!;
+    public string? DriverPhone { get; set; }
+    public DateOnly? ExpectedDeliveryDate { get; set; }
+    public string? DispatchNotes { get; set; }
 }

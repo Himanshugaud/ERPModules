@@ -31,7 +31,7 @@ export default function InventoryStock() {
   const whMap = useMemo(() => new Map(warehouses.map((w) => [w.id, w.name])), [warehouses]);
 
   async function loadRefs() {
-    const [its, whs] = await Promise.all([api.items({ pageSize: 200 }), api.warehouses()]);
+    const [its, whs] = await Promise.all([api.allItems(), api.warehouses()]);
     setItems(its.data);
     setWarehouses(whs);
   }

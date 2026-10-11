@@ -1,8 +1,28 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, ApiError, type Lookup, type Client } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
+import { uploadableCategories } from "../components/AttachmentsPanel";
+import RequirementFiles from "../components/RequirementFiles";
 import { formatDate } from "../lib/ui";
+
+// Moves the draft's documents into the new project's "Requirement Attachments" folder.
+async function adoptDraftFiles(projectId: string, draftId: string): Promise<void> {
+  try {
+    await api.adoptDraftAttachments(projectId, draftId);
+  } catch {
+    window.alert("The project was created, but its requirement documents could not be moved across. Open the requirement again to retry.");
+  }
+}
+
+async function discardDraftFiles(draftId: string): Promise<void> {
+  try {
+    const files = await api.draftAttachments(draftId);
+    await Promise.all(files.map((f) => api.deleteAttachment(f.id)));
+  } catch {
+    // best effort
+  }
+}
 
 interface Requirement {
   id: string;
@@ -42,6 +62,7 @@ export default function Requirements() {
   const [statuses, setStatuses] = useState<Lookup[]>([]);
   const [priorities, setPriorities] = useState<Lookup[]>([]);
   const [wizard, setWizard] = useState(false);
+  const [editReq, setEditReq] = useState<Requirement | null>(null);
   const [convertReq, setConvert] = useState<Requirement | null>(null);
 
   useEffect(() => {
@@ -93,9 +114,15 @@ export default function Requirements() {
                       {r.status === "CONVERTED" && r.projectId ? (
                         <button className="btn btn-sm" onClick={() => navigate(`/projects/${r.projectId}`)}>Open Project</button>
                       ) : (
-                        <button className="btn btn-sm primary" onClick={() => setConvert(r)}>Convert →</button>
+                        <>
+                          <button className="btn btn-sm" onClick={() => setEditReq(r)}>Edit / Documents</button>
+                          <button className="btn btn-sm primary" onClick={() => setConvert(r)}>Convert →</button>
+                        </>
                       )}
-                      <button className="btn btn-sm danger" onClick={() => persist(reqs.filter((x) => x.id !== r.id))}>Delete</button>
+                      <button className="btn btn-sm danger" onClick={() => {
+                        if (r.status !== "CONVERTED") discardDraftFiles(r.id);
+                        persist(reqs.filter((x) => x.id !== r.id));
+                      }}>Delete</button>
                     </div>
                   </td>
                 </tr>
@@ -105,16 +132,18 @@ export default function Requirements() {
         </table>
       </div>
 
-      {wizard && (
+      {(wizard || editReq) && (
         <RequirementWizard
+          initial={editReq ?? undefined}
           clients={clients}
           statuses={statuses}
           priorities={priorities}
-          onClose={() => setWizard(false)}
+          onClose={() => { setWizard(false); setEditReq(null); }}
           onCreated={(req, project) => {
-            const next = [{ ...req, status: (project ? "CONVERTED" : "NEW") as Requirement["status"], projectId: project?.id }, ...reqs];
-            persist(next);
+            const saved = { ...req, status: (project ? "CONVERTED" : "NEW") as Requirement["status"], projectId: project?.id };
+            persist(reqs.some((x) => x.id === req.id) ? reqs.map((x) => (x.id === req.id ? saved : x)) : [saved, ...reqs]);
             setWizard(false);
+            setEditReq(null);
             if (project) navigate(`/planning`);
           }}
         />
@@ -149,6 +178,7 @@ function genCode() {
 }
 
 function RequirementWizard(props: {
+  initial?: Requirement;
   clients: Client[];
   statuses: Lookup[];
   priorities: Lookup[];
@@ -156,8 +186,18 @@ function RequirementWizard(props: {
   onCreated: (req: Requirement, project?: { id: string }) => void;
 }) {
   const [step, setStep] = useState(1);
+  const { user } = useAuth();
+  const canAttach = uploadableCategories(user?.permissions ?? []).includes("REQUIREMENT");
+  // The requirement id doubles as the id its documents are stored under until it becomes a project.
+  const [draftId] = useState(() => props.initial?.id ?? crypto.randomUUID());
+  const savedRef = useRef(false);
   const [form, setForm] = useState<Record<string, string>>({
-    title: "", clientId: "", description: "", priority: "MEDIUM", budget: "", targetDate: ""
+    title: props.initial?.title ?? "",
+    clientId: props.initial?.clientId ?? "",
+    description: props.initial?.description ?? "",
+    priority: props.initial?.priority ?? "MEDIUM",
+    budget: props.initial?.budget ?? "",
+    targetDate: props.initial?.targetDate ?? ""
   });
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -174,7 +214,7 @@ function RequirementWizard(props: {
 
   function buildReq(): Requirement {
     return {
-      id: crypto.randomUUID(),
+      id: draftId,
       title: form.title.trim(),
       clientId: form.clientId,
       clientName: client?.name ?? "",
@@ -183,12 +223,19 @@ function RequirementWizard(props: {
       budget: form.budget,
       targetDate: form.targetDate,
       status: "NEW",
-      createdAt: new Date().toISOString()
+      createdAt: props.initial?.createdAt ?? new Date().toISOString()
     };
   }
 
   async function saveOnly() {
+    savedRef.current = true;
     props.onCreated(buildReq());
+  }
+
+  // Closing a brand-new requirement without saving discards the files already uploaded for it.
+  function close() {
+    if (!savedRef.current && !props.initial) discardDraftFiles(draftId);
+    props.onClose();
   }
 
   async function convertNow() {
@@ -206,6 +253,8 @@ function RequirementWizard(props: {
         budget: form.budget ? Number(form.budget) : undefined,
         currencyCode: "INR"
       });
+      if (canAttach) await adoptDraftFiles(project.id, draftId);
+      savedRef.current = true;
       props.onCreated(buildReq(), project);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Unable to convert to project.");
@@ -214,11 +263,11 @@ function RequirementWizard(props: {
   }
 
   return (
-    <div className="modal-overlay" onClick={props.onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
+    <div className="modal-overlay" onClick={close}>
+      <div className="modal" style={{ maxWidth: 640 }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-head">
-          <h3>New Requirement · Step {step} of 2</h3>
-          <button className="icon-btn" onClick={props.onClose}>✕</button>
+          <h3>{props.initial ? "Edit Requirement" : "New Requirement"} · Step {step} of 2</h3>
+          <button className="icon-btn" onClick={close}>✕</button>
         </div>
 
         {step === 1 ? (
@@ -259,9 +308,15 @@ function RequirementWizard(props: {
                 <label>Estimated Budget</label>
                 <input type="number" value={form.budget} onChange={(e) => set("budget", e.target.value)} placeholder="0" />
               </div>
+              {canAttach && (
+                <div className="field">
+                  <label>Attachments</label>
+                  <RequirementFiles draftId={draftId} />
+                </div>
+              )}
             </div>
             <div className="modal-foot">
-              <button type="button" className="btn" onClick={props.onClose}>Cancel</button>
+              <button type="button" className="btn" onClick={close}>Cancel</button>
               <button className="btn primary">Next →</button>
             </div>
           </form>
@@ -281,6 +336,12 @@ function RequirementWizard(props: {
                 <div style={{ marginTop: 12 }}>
                   <div className="meta-label">Description</div>
                   <div style={{ marginTop: 4 }}>{form.description}</div>
+                </div>
+              )}
+              {canAttach && (
+                <div style={{ marginTop: 14 }}>
+                  <div className="meta-label">Attachments</div>
+                  <RequirementFiles draftId={draftId} readOnly />
                 </div>
               )}
             </div>
@@ -305,6 +366,8 @@ function ConvertModal(props: {
   onConverted: (projectId: string) => void;
 }) {
   const r = props.requirement;
+  const { user } = useAuth();
+  const canAttach = uploadableCategories(user?.permissions ?? []).includes("REQUIREMENT");
   const [code, setCode] = useState(genCode());
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -324,6 +387,7 @@ function ConvertModal(props: {
         budget: r.budget ? Number(r.budget) : undefined,
         currencyCode: "INR"
       });
+      if (canAttach) await adoptDraftFiles(project.id, r.id);
       props.onConverted(project.id);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Unable to convert to project.");
@@ -351,6 +415,12 @@ function ConvertModal(props: {
             <div className="meta-item"><div className="meta-label">Priority</div><div className="meta-value">{r.priority}</div></div>
             <div className="meta-item"><div className="meta-label">Target Date</div><div className="meta-value">{formatDate(r.targetDate)}</div></div>
           </div>
+          {canAttach && (
+            <div style={{ marginTop: 14 }}>
+              <div className="meta-label">Attachments</div>
+              <RequirementFiles draftId={r.id} disabled={saving} />
+            </div>
+          )}
         </div>
         <div className="modal-foot">
           <button className="btn" onClick={props.onClose}>Cancel</button>

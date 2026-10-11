@@ -48,7 +48,8 @@ public sealed class ItemsFunctions
             ItemType = Http.StringQuery(req, "itemType"),
             CategoryId = Http.GuidQuery(req, "categoryId"),
             Search = Http.StringQuery(req, "search"),
-            LowStock = bool.TryParse(Http.StringQuery(req, "lowStock"), out var low) ? low : null
+            LowStock = bool.TryParse(Http.StringQuery(req, "lowStock"), out var low) ? low : null,
+            Manufactured = bool.TryParse(Http.StringQuery(req, "manufactured"), out var mfg) ? mfg : null
         };
         return Http.Paged(await _service.ListAsync(filter, ct));
     }

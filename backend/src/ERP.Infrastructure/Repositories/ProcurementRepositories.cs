@@ -1,4 +1,5 @@
 using ERP.Application.Abstractions;
+using ERP.Domain.Constants;
 using ERP.Domain.Entities;
 using ERP.Infrastructure.Persistence;
 using ERP.Shared.Pagination;
@@ -24,11 +25,17 @@ public sealed class MaterialRequirementRepository : IMaterialRequirementReposito
         if (filter.WarehouseId.HasValue) q = q.Where(r => r.WarehouseId == filter.WarehouseId);
         if (!string.IsNullOrWhiteSpace(filter.Status)) q = q.Where(r => r.Status == filter.Status);
         if (!string.IsNullOrWhiteSpace(filter.Priority)) q = q.Where(r => r.Priority == filter.Priority);
+        if (!filter.IncludeDrafts && filter.Status != MaterialRequirementStatuses.Draft) q = q.Where(r => r.Status != MaterialRequirementStatuses.Draft);
 
         var total = await q.LongCountAsync(ct);
         var items = await q.OrderByDescending(r => r.CreatedAt).Skip(filter.Skip).Take(filter.PageSize).ToListAsync(ct);
         return new PagedResult<MaterialRequirement> { Items = items, TotalItems = total, Page = filter.Page, PageSize = filter.PageSize };
     }
+
+    public Task<List<MaterialRequirement>> ListForProjectAsync(Guid organizationId, Guid projectId, CancellationToken ct = default) =>
+        _db.MaterialRequirements.Include(r => r.Lines).Where(r => r.OrganizationId == organizationId && r.ProjectId == projectId).ToListAsync(ct);
+
+    public void Remove(MaterialRequirement requirement) => _db.MaterialRequirements.Remove(requirement);
 
     public Task<bool> NumberExistsAsync(Guid organizationId, string number, CancellationToken ct = default) =>
         _db.MaterialRequirements.AnyAsync(r => r.OrganizationId == organizationId && r.ReqNumber == number, ct);

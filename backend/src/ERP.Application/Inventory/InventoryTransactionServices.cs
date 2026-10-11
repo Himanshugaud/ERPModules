@@ -341,7 +341,7 @@ public interface IStockTransferService
     Task<PagedResult<InventoryDocumentResponse>> ListAsync(InventoryDocFilter filter, CancellationToken ct = default);
     Task<InventoryDocumentResponse> GetAsync(Guid id, CancellationToken ct = default);
     Task<InventoryDocumentResponse> ApproveAsync(Guid id, CancellationToken ct = default);
-    Task<InventoryDocumentResponse> DispatchAsync(Guid id, CancellationToken ct = default);
+    Task<InventoryDocumentResponse> DispatchAsync(Guid id, DispatchStockTransferRequest request, CancellationToken ct = default);
     Task<InventoryDocumentResponse> ReceiveAsync(Guid id, CancellationToken ct = default);
 }
 
@@ -464,9 +464,17 @@ public sealed class StockTransferService : IStockTransferService
         return await SaveStatusAsync(t, 0, ct);
     }
 
-    public async Task<InventoryDocumentResponse> DispatchAsync(Guid id, CancellationToken ct = default)
+    public async Task<InventoryDocumentResponse> DispatchAsync(Guid id, DispatchStockTransferRequest request, CancellationToken ct = default)
     {
         var t = await RequireStatusAsync(id, TransferStatuses.Approved, ct);
+        t.TransporterName = request.TransporterName?.Trim();
+        t.VehicleNumber = request.VehicleNumber.Trim().ToUpperInvariant();
+        t.VehicleType = request.VehicleType?.Trim();
+        t.DriverName = request.DriverName.Trim();
+        t.DriverPhone = request.DriverPhone?.Trim();
+        t.ExpectedDeliveryDate = request.ExpectedDeliveryDate;
+        t.DispatchNotes = request.DispatchNotes?.Trim();
+        t.TransportId ??= t.VehicleNumber;
         decimal totalValue = 0;
         await _uow.ExecuteInTransactionAsync(async token =>
         {
@@ -568,7 +576,14 @@ public sealed class StockTransferService : IStockTransferService
         DispatchedBy = t.DispatchedBy,
         DispatchedAt = t.DispatchedAt,
         ReceivedBy = t.ReceivedBy,
-        ReceivedAt = t.ReceivedAt
+        ReceivedAt = t.ReceivedAt,
+        TransporterName = t.TransporterName,
+        VehicleNumber = t.VehicleNumber,
+        VehicleType = t.VehicleType,
+        DriverName = t.DriverName,
+        DriverPhone = t.DriverPhone,
+        ExpectedDeliveryDate = t.ExpectedDeliveryDate,
+        DispatchNotes = t.DispatchNotes
     };
 }
 

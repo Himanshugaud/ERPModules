@@ -14,16 +14,18 @@ public sealed class MaterialRequirementsFunctions
 {
     private readonly IMaterialRequirementService _service;
     private readonly IAuthorizationGuard _auth;
+    private readonly ICurrentUser _user;
     private readonly IValidator<CreateMaterialRequirementRequest> _createValidator;
     private readonly IValidator<RejectMaterialRequirementRequest> _rejectValidator;
     private readonly IValidator<ConvertToPurchaseOrderRequest> _convertValidator;
 
-    public MaterialRequirementsFunctions(IMaterialRequirementService service, IAuthorizationGuard auth,
+    public MaterialRequirementsFunctions(IMaterialRequirementService service, IAuthorizationGuard auth, ICurrentUser user,
         IValidator<CreateMaterialRequirementRequest> createValidator, IValidator<RejectMaterialRequirementRequest> rejectValidator,
         IValidator<ConvertToPurchaseOrderRequest> convertValidator)
     {
         _service = service;
         _auth = auth;
+        _user = user;
         _createValidator = createValidator;
         _rejectValidator = rejectValidator;
         _convertValidator = convertValidator;
@@ -50,9 +52,19 @@ public sealed class MaterialRequirementsFunctions
             ProjectId = Http.GuidQuery(req, "projectId"),
             WarehouseId = Http.GuidQuery(req, "warehouseId"),
             Status = Http.StringQuery(req, "status"),
-            Priority = Http.StringQuery(req, "priority")
+            Priority = Http.StringQuery(req, "priority"),
+            IncludeDrafts = _user.HasPermission(Permissions.MaterialRequirementCreate)
         };
         return Http.Paged(await _service.ListAsync(filter, ct));
+    }
+
+    [Function("DeleteMaterialRequirementDraft")]
+    public async Task<IActionResult> DeleteDraft(
+        [HttpTrigger(AuthorizationLevel.Anonymous, "delete", Route = "v1/material-requirements/{id:guid}")] HttpRequest req, Guid id, CancellationToken ct)
+    {
+        _auth.Require(Permissions.MaterialRequirementCreate);
+        await _service.DeleteDraftAsync(id, ct);
+        return Http.NoContent();
     }
 
     [Function("GetMaterialRequirement")]

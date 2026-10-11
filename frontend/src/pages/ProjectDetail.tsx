@@ -1,7 +1,10 @@
 import { Fragment, useEffect, useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { api, ApiError, type Project, type Task, type Lookup, type UserItem, type Client, type MaterialRequirement, type InventoryDocument } from "../api/client";
+import { api, ApiError, type Project, type Task, type Lookup, type UserItem, type Client, type MaterialRequirement, type InventoryDocument, type ProjectPlan } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
+import ProjectArtifacts from "../components/ProjectArtifacts";
+import CollapsibleCard from "../components/CollapsibleCard";
+import PlanCalendar from "../components/PlanCalendar";
 import { statusBadge, formatDate, formatDateTime, initials } from "../lib/ui";
 
 type ModalMode = "create" | "edit" | "subtask";
@@ -20,6 +23,7 @@ export default function ProjectDetail() {
   const [users, setUsers] = useState<UserItem[]>([]);
   const [requirements, setRequirements] = useState<MaterialRequirement[]>([]);
   const [transfers, setTransfers] = useState<InventoryDocument[]>([]);
+  const [plan, setPlan] = useState<ProjectPlan | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [modal, setModal] = useState<{ mode: ModalMode; task?: Task; parentId?: string } | null>(null);
@@ -64,6 +68,7 @@ export default function ProjectDetail() {
         api.users().then(setUsers).catch(() => setUsers([]));
         api.materialRequirements({ projectId, pageSize: 100 }).then((r) => setRequirements(r.data)).catch(() => setRequirements([]));
         api.stockTransfers({ projectId, pageSize: 100 }).then((r) => setTransfers(r.data)).catch(() => setTransfers([]));
+        api.projectPlan(projectId).then(setPlan).catch(() => setPlan(null));
       } catch (err) {
         setError(err instanceof ApiError ? err.message : "Unable to load project.");
       } finally {
@@ -120,14 +125,14 @@ export default function ProjectDetail() {
   const events: TimelineEvent[] = [];
   if (project.createdAt) events.push({ at: project.createdAt, phase: "Requirement", label: "Project created" });
   for (const r of requirements) {
-    events.push({ at: r.createdAt, phase: "Planning", label: `Materials estimate ${r.reqNumber} submitted`, by: personName(r.requestedBy) });
+    events.push({ at: r.createdAt, phase: "Planning", label: r.status === "DRAFT" ? `Materials estimate ${r.reqNumber} drafted (not yet published)` : `Materials estimate ${r.reqNumber} submitted`, by: personName(r.requestedBy) });
     if (r.approvedAt) events.push({ at: r.approvedAt, phase: "Inventory", label: `Materials estimate ${r.reqNumber} approved`, by: personName(r.approvedBy) });
     if (r.rejectedAt) events.push({ at: r.rejectedAt, phase: "Inventory", label: `Materials estimate ${r.reqNumber} rejected${r.rejectionReason ? `: ${r.rejectionReason}` : ""}`, by: personName(r.rejectedBy) });
   }
   for (const t of transfers) {
     events.push({ at: t.createdAt, phase: "Inventory", label: `Shipment ${t.number} arranged`, by: personName(t.requestedBy) });
     if (t.approvedAt) events.push({ at: t.approvedAt, phase: "Inventory", label: `Shipment ${t.number} approved`, by: personName(t.approvedBy) });
-    if (t.dispatchedAt) events.push({ at: t.dispatchedAt, phase: "Shipment", label: `Shipment ${t.number} dispatched`, by: personName(t.dispatchedBy) });
+    if (t.dispatchedAt) events.push({ at: t.dispatchedAt, phase: "Shipment", label: `Shipment ${t.number} dispatched${t.vehicleNumber ? ` on vehicle ${t.vehicleNumber}` : ""}`, by: personName(t.dispatchedBy) });
     if (t.receivedAt) events.push({ at: t.receivedAt, phase: "Shipment", label: `Shipment ${t.number} delivered`, by: personName(t.receivedBy) });
   }
   events.sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime());
@@ -218,35 +223,48 @@ export default function ProjectDetail() {
         </div>
       </div>
 
-      <div className="card" style={{ marginTop: 18 }}>
-        <div className="card-pad" style={{ borderBottom: "1px solid var(--border)" }}>
-          <strong>Activity Timeline</strong><span className="muted" style={{ marginLeft: 8 }}>({events.length})</span>
-          <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>Requirement → Planning → Inventory → Shipment</div>
-        </div>
-        <div className="card-pad">
-          {events.length === 0 ? (
-            <div className="empty">No activity recorded yet for this project.</div>
-          ) : (
-            <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
-              {events.map((e, i) => (
-                <li key={i} style={{ display: "flex", gap: 12, padding: "8px 0", borderBottom: i < events.length - 1 ? "1px solid var(--border)" : "none" }}>
-                  <span className="badge blue" style={{ minWidth: 82, textAlign: "center" }}>{e.phase}</span>
-                  <div style={{ flex: 1 }}>
-                    <div>{e.label}{e.by ? <span className="muted"> · by {e.by}</span> : null}</div>
-                    <div className="muted" style={{ fontSize: 12 }}>{formatDateTime(e.at)}</div>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      </div>
+      <CollapsibleCard storageKey="artifacts" title="Project Artifacts" subtitle="Documents attached at each stage — requirement, planning, procurement and transport">
+        <ProjectArtifacts projectId={projectId} users={users} />
+      </CollapsibleCard>
 
-      <div className="card" style={{ marginTop: 18 }}>
-        <div className="card-pad" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid var(--border)" }}>
-          <div><strong>Tasks &amp; Subtasks</strong><span className="muted" style={{ marginLeft: 8 }}>({tasks.length})</span></div>
-          <button className="btn primary" onClick={() => setModal({ mode: "create" })}>+ New Task</button>
-        </div>
+      <CollapsibleCard
+        storageKey="plan"
+        title="Project Plan"
+        subtitle="Calendar planner maintained by the Planning team"
+        right={plan && (
+          <span className={`badge ${plan.status === "PUBLISHED" ? "green" : "amber"}`}>
+            {plan.status === "PUBLISHED" ? `Published ${formatDate(plan.publishedAt)}` : "Draft — not yet published"}
+          </span>
+        )}
+      >
+        <PlanCalendar projectId={projectId} canEdit={perms.includes("plan.manage")} users={users} />
+      </CollapsibleCard>
+
+      <CollapsibleCard storageKey="timeline" title="Activity Timeline" count={events.length} subtitle="Requirement → Planning → Inventory → Shipment">
+        {events.length === 0 ? (
+          <div className="empty">No activity recorded yet for this project.</div>
+        ) : (
+          <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
+            {events.map((e, i) => (
+              <li key={i} style={{ display: "flex", gap: 12, padding: "8px 0", borderBottom: i < events.length - 1 ? "1px solid var(--border)" : "none" }}>
+                <span className="badge blue" style={{ minWidth: 82, textAlign: "center" }}>{e.phase}</span>
+                <div style={{ flex: 1 }}>
+                  <div>{e.label}{e.by ? <span className="muted"> · by {e.by}</span> : null}</div>
+                  <div className="muted" style={{ fontSize: 12 }}>{formatDateTime(e.at)}</div>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </CollapsibleCard>
+
+      <CollapsibleCard
+        storageKey="tasks"
+        title="Tasks &amp; Subtasks"
+        count={tasks.length}
+        flush
+        right={<button className="btn primary" onClick={() => setModal({ mode: "create" })}>+ New Task</button>}
+      >
         {tasks.length === 0 ? (
           <div className="empty">No tasks yet. Create the first task for this project.</div>
         ) : (
@@ -266,7 +284,7 @@ export default function ProjectDetail() {
             </tbody>
           </table>
         )}
-      </div>
+      </CollapsibleCard>
 
       {modal && (
         <TaskModal

@@ -14,6 +14,9 @@ public sealed class MaterialRequirementConfiguration : IEntityTypeConfiguration<
         b.Property(x => x.Priority).HasMaxLength(20);
         b.Property(x => x.Status).HasMaxLength(30);
         b.Property(x => x.DestinationAddress).HasMaxLength(300);
+        b.Property(x => x.SheetType).HasMaxLength(40);
+        b.Property(x => x.BlockName).HasMaxLength(100);
+        b.Property(x => x.BlockSize).HasMaxLength(100);
         b.Property(x => x.RejectionReason).HasMaxLength(500);
         b.Property(x => x.Notes).HasMaxLength(1000);
         b.Property(x => x.RowVersion).IsRowVersion();
@@ -28,6 +31,7 @@ public sealed class MaterialRequirementLineConfiguration : IEntityTypeConfigurat
         b.ToTable("MaterialRequirementLines", "inventory");
         b.HasKey(x => x.Id);
         b.Property(x => x.Qty).HasColumnType("decimal(19,4)");
+        b.Property(x => x.SectionName).HasMaxLength(150);
         b.Property(x => x.Notes).HasMaxLength(500);
     }
 }

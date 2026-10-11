@@ -118,13 +118,26 @@ public sealed class CreateStockTransferRequestValidator : AbstractValidator<Crea
         RuleFor(x => x.ToWarehouseId).NotEmpty()
             .Must((req, toId) => !req.FromWarehouseId.HasValue || toId != req.FromWarehouseId.Value)
             .WithMessage("Source and destination warehouses must differ.");
-        RuleFor(x => x.TransportId).NotEmpty().MaximumLength(50).WithMessage("A transport ID is required for every stock transfer.");
+        RuleFor(x => x.TransportId).MaximumLength(50);
         RuleFor(x => x.Lines).NotEmpty();
         RuleForEach(x => x.Lines).ChildRules(l =>
         {
             l.RuleFor(x => x.ItemId).NotEmpty();
             l.RuleFor(x => x.Qty).GreaterThan(0);
         });
+    }
+}
+
+public sealed class DispatchStockTransferRequestValidator : AbstractValidator<DispatchStockTransferRequest>
+{
+    public DispatchStockTransferRequestValidator()
+    {
+        RuleFor(x => x.VehicleNumber).NotEmpty().MaximumLength(30).WithMessage("Vehicle number is required.");
+        RuleFor(x => x.DriverName).NotEmpty().MaximumLength(150).WithMessage("Driver name is required.");
+        RuleFor(x => x.DriverPhone).MaximumLength(30);
+        RuleFor(x => x.TransporterName).MaximumLength(150);
+        RuleFor(x => x.VehicleType).MaximumLength(50);
+        RuleFor(x => x.DispatchNotes).MaximumLength(500);
     }
 }
 

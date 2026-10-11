@@ -18,6 +18,7 @@ import InventorySuppliers from "./pages/InventorySuppliers";
 import Production from "./pages/Production";
 import Planning from "./pages/Planning";
 import InventoryRequests from "./pages/InventoryRequests";
+import PurchaseOrders from "./pages/PurchaseOrders";
 import Shipment from "./pages/Shipment";
 import Placeholder from "./pages/Placeholder";
 
@@ -49,6 +50,7 @@ export default function App() {
             <Route path="inventory/suppliers" element={<AccessRoute anyPermission={["supplier.read"]}><InventorySuppliers /></AccessRoute>} />
             <Route path="inventory/production" element={<AccessRoute anyPermission={["bom.read", "workorder.read"]}><Production /></AccessRoute>} />
             <Route path="inventory/requests" element={<AccessRoute anyPermission={["materialrequirement.approve", "materialrequirement.read"]}><InventoryRequests /></AccessRoute>} />
+            <Route path="inventory/purchase-orders" element={<AccessRoute anyPermission={["purchaseorder.read"]}><PurchaseOrders /></AccessRoute>} />
             <Route path="shipment" element={<AccessRoute anyPermission={["transfer.dispatch", "transfer.receive"]}><Shipment /></AccessRoute>} />
             <Route path="profile" element={<Profile />} />
             <Route path="core" element={<AccessRoute anyRole={["SUPER_ADMIN", "Administrator"]}><Placeholder title="Core" /></AccessRoute>} />
