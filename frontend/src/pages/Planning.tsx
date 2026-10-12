@@ -4,7 +4,7 @@ import { api, ApiError, type Project, type Lookup, type Warehouse, type Inventor
 import AttachmentsPanel from "../components/AttachmentsPanel";
 import PlanCalendar from "../components/PlanCalendar";
 import SheetCreator from "../components/SheetCreator";
-import { downloadRequirementXlsx, parseRequirementXlsx, type ParsedSheet } from "../lib/sheetExcel";
+import { downloadRequirementXlsx, parseRequirementXlsx, requirementXlsxFile, type ParsedSheet } from "../lib/sheetExcel";
 import { formatDate, formatDateTime } from "../lib/ui";
 import { useAuth } from "../auth/AuthContext";
 
@@ -164,8 +164,40 @@ function MaterialsEstimateModal(props: { project: Project; warehouses: Warehouse
   async function deleteDraft(r: MaterialRequirement) {
     if (!window.confirm(`Delete draft estimate ${r.reqNumber}?`)) return;
     setError(null);
-    try { await api.deleteMaterialRequirement(r.id); await load(); }
+    try {
+      await api.deleteMaterialRequirement(r.id);
+      await removeSheetFile(r);
+      await load();
+    }
     catch (err) { setError(err instanceof ApiError ? err.message : "Unable to delete the draft."); }
+  }
+
+  const sheetFileMarker = (r: MaterialRequirement) => `Material sheet ${r.reqNumber} `;
+
+  // The Excel copy of a sheet lives in the project's Planning Attachments; best effort, it is not the source of truth.
+  async function removeSheetFile(r: MaterialRequirement) {
+    try {
+      const files = await api.projectAttachments(props.project.id, "PLANNING");
+      for (const f of files.filter((x) => x.description?.startsWith(sheetFileMarker(r)))) await api.deleteAttachment(f.id);
+    } catch { /* plan already published or no access: leave the file */ }
+  }
+
+  async function saveSheetFile(saved: MaterialRequirement, replaced?: MaterialRequirement) {
+    try {
+      if (replaced) await removeSheetFile(replaced);
+      const all = await api.allItems();
+      const file = await requirementXlsxFile(saved, {
+        orgName: user?.organizationName ?? "",
+        projectName: props.project.name,
+        projectCode: props.project.code,
+        items: all.data,
+        uoms: props.uoms,
+        sheetTypeName: catalog.find((t) => t.code === saved.sheetType)?.name
+      });
+      await api.uploadAttachment(props.project.id, "PLANNING", file, `${sheetFileMarker(saved)}(auto-generated)`);
+    } catch {
+      setError("The sheet was saved, but its Excel copy could not be added to Planning attachments.");
+    }
   }
 
   async function publish() {
@@ -288,7 +320,7 @@ function MaterialsEstimateModal(props: { project: Project; warehouses: Warehouse
           )}
 
           {tab === "attachments" && (
-            <AttachmentsPanel projectId={props.project.id} defaultCategory="PLANNING" users={users} onChanged={loadPlan} />
+            <AttachmentsPanel projectId={props.project.id} defaultCategory="PLANNING" users={users} deletable={!published && canManagePlan} onChanged={loadPlan} />
           )}
 
           {tab === "publish" && (
@@ -349,7 +381,7 @@ function MaterialsEstimateModal(props: { project: Project; warehouses: Warehouse
           parsed={creator.parsed}
           replace={creator.replace}
           onClose={() => setCreator(null)}
-          onSaved={async () => { setCreator(null); await load(); }}
+          onSaved={async (saved, replaced) => { setCreator(null); await saveSheetFile(saved, replaced); await load(); }}
         />
       )}
 
@@ -361,7 +393,7 @@ function MaterialsEstimateModal(props: { project: Project; warehouses: Warehouse
           items={props.items}
           uoms={props.uoms}
           onClose={() => setAddOpen(false)}
-          onSaved={async () => { setAddOpen(false); await load(); }}
+          onSaved={async (saved) => { setAddOpen(false); await saveSheetFile(saved); await load(); }}
         />
       )}
     </div>
@@ -371,7 +403,7 @@ function MaterialsEstimateModal(props: { project: Project; warehouses: Warehouse
 type Draft = { warehouseId: string; destinationAddress: string; priority: string; requiredDate: string; notes: string; lines: LineRow[] };
 const EMPTY_LINE: LineRow = { itemId: "", qty: "", uomId: "", notes: "" };
 
-function AddMaterialsModal(props: { project: Project; asDraft: boolean; warehouses: Warehouse[]; items: InventoryItem[]; uoms: Lookup[]; onClose: () => void; onSaved: () => void }) {
+function AddMaterialsModal(props: { project: Project; asDraft: boolean; warehouses: Warehouse[]; items: InventoryItem[]; uoms: Lookup[]; onClose: () => void; onSaved: (saved: MaterialRequirement) => void }) {
   const draftKey = `erp_planning_draft_${props.project.id}`;
   const siteWarehouses = props.warehouses.filter((w) => w.warehouseType === "SITE_STORE" && w.projectId === props.project.id);
   const candidateWarehouses = siteWarehouses.length > 0 ? siteWarehouses : props.warehouses;
@@ -429,7 +461,7 @@ function AddMaterialsModal(props: { project: Project; asDraft: boolean; warehous
     if (!destinationAddress.trim()) { setError("Enter the destination — a site address or a warehouse name."); return; }
     setSaving(true);
     try {
-      await api.createMaterialRequirement({
+      const saved = await api.createMaterialRequirement({
         projectId: props.project.id,
         asDraft: props.asDraft,
         warehouseId: warehouseId || undefined,
@@ -440,7 +472,7 @@ function AddMaterialsModal(props: { project: Project; asDraft: boolean; warehous
         lines: valid.map((l) => ({ itemId: l.itemId, qty: Number(l.qty), uomId: l.uomId || undefined, notes: l.notes || undefined }))
       });
       localStorage.removeItem(draftKey);
-      props.onSaved();
+      props.onSaved(saved);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Unable to create the materials estimate.");
     } finally {

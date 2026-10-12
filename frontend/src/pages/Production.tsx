@@ -22,8 +22,9 @@ export default function Production() {
 
   const itemMap = useMemo(() => new Map(items.map((i) => [i.id, i])), [items]);
   const projectMap = useMemo(() => new Map(projects.map((p) => [p.id, p])), [projects]);
-  // Orders raised from published plans that are still to be made.
-  const fabrication = useMemo(() => orders.filter((w) => w.materialRequirementId && (w.status === "DRAFT" || w.status === "RELEASED")), [orders]);
+  // Orders Inventory has sent over from a material request; still-DRAFT ones have not been handed to the fabrication team yet.
+  const fabrication = useMemo(() => orders.filter((w) => w.materialRequirementId && (w.status === "RELEASED" || w.status === "COMPLETED")).sort((a, b) => Number(a.status === "COMPLETED") - Number(b.status === "COMPLETED")), [orders]);
+  const fabricationPending = fabrication.filter((w) => w.status === "RELEASED").length;
 
   async function load() {
     setLoading(true);
@@ -66,7 +67,7 @@ export default function Production() {
 
       <div className="topbar" style={{ padding: 0, border: "none", background: "none", marginBottom: 12 }}>
         <div className="tabs">
-          <span className={`tab ${tab === "fabrication" ? "active" : ""}`} style={{ cursor: "pointer" }} onClick={() => setTab("fabrication")}>Fabrication List{fabrication.length > 0 && <span className="badge blue" style={{ marginLeft: 6 }}>{fabrication.length}</span>}</span>
+          <span className={`tab ${tab === "fabrication" ? "active" : ""}`} style={{ cursor: "pointer" }} onClick={() => setTab("fabrication")}>Fabrication List{fabricationPending > 0 && <span className="badge blue" style={{ marginLeft: 6 }}>{fabricationPending}</span>}</span>
           <span className={`tab ${tab === "orders" ? "active" : ""}`} style={{ cursor: "pointer" }} onClick={() => setTab("orders")}>Work Orders</span>
           <span className={`tab ${tab === "boms" ? "active" : ""}`} style={{ cursor: "pointer" }} onClick={() => setTab("boms")}>Bills of Materials</span>
         </div>
@@ -80,7 +81,7 @@ export default function Production() {
             <thead><tr><th>WO #</th><th>Item to fabricate</th><th>Qty</th><th>For project</th><th>Needed by</th><th>Status</th><th></th></tr></thead>
             <tbody>
               {loading ? <tr><td colSpan={7}><div className="empty">Loading…</div></td></tr>
-                : fabrication.length === 0 ? <tr><td colSpan={7}><div className="empty">Nothing to fabricate. Factory-made items missing from stock appear here when Planning publishes a plan.</div></td></tr>
+                : fabrication.length === 0 ? <tr><td colSpan={7}><div className="empty">Nothing to fabricate. Inventory sends factory-made items here from Material Requests.</div></td></tr>
                 : fabrication.map((w) => (
                   <tr key={w.id}>
                     <td className="cell-code">{w.woNumber}</td>
@@ -88,10 +89,9 @@ export default function Production() {
                     <td>{w.plannedQty}</td>
                     <td>{w.projectId ? <>{projectMap.get(w.projectId)?.name ?? "—"}<div className="cell-code">{projectMap.get(w.projectId)?.code}</div></> : "—"}</td>
                     <td>{w.startDate ?? "—"}</td>
-                    <td><span className={`badge ${woBadge(w.status)}`}>{w.status === "DRAFT" ? "To start" : "In fabrication"}</span></td>
+                    <td><span className={`badge ${woBadge(w.status)}`}>{w.status === "COMPLETED" ? "Completed" : "In fabrication"}</span></td>
                     <td style={{ textAlign: "right" }}>
-                      {w.status === "DRAFT" && perms.includes("workorder.release") && <button className="btn btn-sm primary" onClick={() => doRelease(w)}>Start fabrication</button>}
-                      {w.status === "RELEASED" && perms.includes("workorder.complete") && <button className="btn btn-sm primary" onClick={() => setComplete(w)}>Mark complete</button>}
+                      {w.status === "RELEASED" && perms.includes("workorder.complete") && <button className="btn btn-sm primary" onClick={() => setComplete(w)}>Mark completed</button>}
                     </td>
                   </tr>
                 ))}

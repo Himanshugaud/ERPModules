@@ -13,6 +13,8 @@ public interface IGoodsReceiptService
     Task<InventoryDocumentResponse> CreateAsync(CreateGoodsReceiptRequest request, CancellationToken ct = default);
     Task<PagedResult<InventoryDocumentResponse>> ListAsync(InventoryDocFilter filter, CancellationToken ct = default);
     Task<InventoryDocumentResponse> GetAsync(Guid id, CancellationToken ct = default);
+    Task<InventoryDocumentResponse> ApproveAsync(Guid id, CancellationToken ct = default);
+    Task<InventoryDocumentResponse> RejectAsync(Guid id, CancellationToken ct = default);
 }
 
 public sealed class GoodsReceiptService : IGoodsReceiptService
@@ -87,7 +89,8 @@ public sealed class GoodsReceiptService : IGoodsReceiptService
             PoReference = request.PoReference?.Trim(),
             WarehouseId = request.WarehouseId,
             ReceivedDate = request.ReceivedDate ?? DateOnly.FromDateTime(_clock.UtcNow),
-            Status = "POSTED",
+            // PO receipts wait for approval; stock and PO quantities only move once approved.
+            Status = po is null ? "POSTED" : GoodsReceiptStatuses.PendingApproval,
             Notes = request.Notes,
             CreatedAt = _clock.UtcNow,
             CreatedBy = _tenant.UserId
@@ -111,37 +114,95 @@ public sealed class GoodsReceiptService : IGoodsReceiptService
                     UnitCost = line.UnitCost,
                     BatchId = batchId
                 });
-
-                await _ledger.ReceiveAsync(line.ItemId, request.WarehouseId, line.Qty, line.UnitCost,
-                    MovementTypes.Receipt, RefDocTypes.GoodsReceipt, receipt.Id, batchId, null, token);
-
-                if (po is not null)
-                {
-                    var poLine = po.Lines.FirstOrDefault(l => l.ItemId == line.ItemId && l.QtyReceived < l.Qty);
-                    if (poLine is not null)
-                        poLine.QtyReceived += line.Qty;
-                }
-
                 totalValue += line.Qty * line.UnitCost;
-                _outbox.Enqueue(new StockReceived(line.ItemId, request.WarehouseId, line.Qty, line.UnitCost) { OrganizationId = orgId });
             }
 
-            if (po is not null)
-            {
-                po.Status = po.Lines.All(l => l.QtyReceived >= l.Qty)
-                    ? PurchaseOrderStatuses.Received
-                    : PurchaseOrderStatuses.PartiallyReceived;
-                po.UpdatedAt = _clock.UtcNow;
-                po.UpdatedBy = _tenant.UserId;
-                _audit.Add(EntityTypes.PurchaseOrder, po.Id, AuditActions.StatusChange, null, new { po.PoNumber, po.Status });
-                _outbox.Enqueue(new PurchaseOrderStatusChanged(po.Id, po.Status) { OrganizationId = orgId });
-            }
+            if (po is null) await PostAsync(receipt, null, orgId, token);
 
-            _audit.Add(EntityTypes.GoodsReceipt, receipt.Id, AuditActions.Create, null, new { receipt.GrnNumber, LineCount = receipt.Lines.Count });
+            _audit.Add(EntityTypes.GoodsReceipt, receipt.Id, AuditActions.Create, null, new { receipt.GrnNumber, receipt.Status, LineCount = receipt.Lines.Count });
             await _uow.SaveChangesAsync(token);
         }, ct);
 
         return ToDocument(receipt, totalValue);
+    }
+
+    public async Task<InventoryDocumentResponse> ApproveAsync(Guid id, CancellationToken ct = default)
+    {
+        var orgId = _tenant.OrganizationId;
+        var receipt = await _receipts.GetTrackedAsync(orgId, id, ct) ?? throw NotFoundException.For("GoodsReceipt", id);
+        if (receipt.Status != GoodsReceiptStatuses.PendingApproval)
+            throw new ConflictException($"Only receipts pending approval can be approved (current status '{receipt.Status}').");
+
+        PurchaseOrder? po = null;
+        if (receipt.PurchaseOrderId.HasValue)
+        {
+            po = await _purchaseOrders.GetAsync(orgId, receipt.PurchaseOrderId.Value, track: true, ct)
+                 ?? throw new ConflictException("Purchase order does not belong to the organization.");
+            if (!ReceivablePoStatuses.Contains(po.Status))
+                throw new ConflictException($"Cannot receive against a purchase order in status '{po.Status}'.");
+            foreach (var line in receipt.Lines)
+            {
+                var open = po.Lines.Where(l => l.ItemId == line.ItemId).Sum(l => l.Qty - l.QtyReceived);
+                if (line.Qty > open)
+                    throw new ConflictException("A received quantity is more than what is still pending on the purchase order.");
+            }
+        }
+
+        await _uow.ExecuteInTransactionAsync(async token =>
+        {
+            receipt.Status = "POSTED";
+            receipt.UpdatedAt = _clock.UtcNow;
+            receipt.UpdatedBy = _tenant.UserId;
+            await PostAsync(receipt, po, orgId, token);
+            _audit.Add(EntityTypes.GoodsReceipt, receipt.Id, AuditActions.StatusChange, null, new { receipt.GrnNumber, receipt.Status });
+            await _uow.SaveChangesAsync(token);
+        }, ct);
+
+        return ToDocument(receipt, receipt.Lines.Sum(l => l.Qty * l.UnitCost));
+    }
+
+    public async Task<InventoryDocumentResponse> RejectAsync(Guid id, CancellationToken ct = default)
+    {
+        var receipt = await _receipts.GetTrackedAsync(_tenant.OrganizationId, id, ct) ?? throw NotFoundException.For("GoodsReceipt", id);
+        if (receipt.Status != GoodsReceiptStatuses.PendingApproval)
+            throw new ConflictException($"Only receipts pending approval can be rejected (current status '{receipt.Status}').");
+
+        receipt.Status = GoodsReceiptStatuses.Rejected;
+        receipt.UpdatedAt = _clock.UtcNow;
+        receipt.UpdatedBy = _tenant.UserId;
+        _audit.Add(EntityTypes.GoodsReceipt, receipt.Id, AuditActions.StatusChange, null, new { receipt.GrnNumber, receipt.Status });
+        await _uow.SaveChangesAsync(ct);
+        return ToDocument(receipt, receipt.Lines.Sum(l => l.Qty * l.UnitCost));
+    }
+
+    // Posts the receipt to the stock ledger and, when linked, advances the purchase order. Caller saves.
+    private async Task PostAsync(GoodsReceipt receipt, PurchaseOrder? po, Guid orgId, CancellationToken token)
+    {
+        foreach (var line in receipt.Lines)
+        {
+            await _ledger.ReceiveAsync(line.ItemId, receipt.WarehouseId, line.Qty, line.UnitCost,
+                MovementTypes.Receipt, RefDocTypes.GoodsReceipt, receipt.Id, line.BatchId, null, token);
+
+            if (po is not null)
+            {
+                var poLine = po.Lines.FirstOrDefault(l => l.ItemId == line.ItemId && l.QtyReceived < l.Qty);
+                if (poLine is not null)
+                    poLine.QtyReceived += line.Qty;
+            }
+
+            _outbox.Enqueue(new StockReceived(line.ItemId, receipt.WarehouseId, line.Qty, line.UnitCost) { OrganizationId = orgId });
+        }
+
+        if (po is not null)
+        {
+            po.Status = po.Lines.All(l => l.QtyReceived >= l.Qty)
+                ? PurchaseOrderStatuses.Received
+                : PurchaseOrderStatuses.PartiallyReceived;
+            po.UpdatedAt = _clock.UtcNow;
+            po.UpdatedBy = _tenant.UserId;
+            _audit.Add(EntityTypes.PurchaseOrder, po.Id, AuditActions.StatusChange, null, new { po.PoNumber, po.Status });
+            _outbox.Enqueue(new PurchaseOrderStatusChanged(po.Id, po.Status) { OrganizationId = orgId });
+        }
     }
 
     public async Task<PagedResult<InventoryDocumentResponse>> ListAsync(InventoryDocFilter filter, CancellationToken ct = default)
@@ -197,7 +258,9 @@ public sealed class GoodsReceiptService : IGoodsReceiptService
         Reference = r.PoReference,
         LineCount = r.Lines.Count,
         TotalValue = totalValue,
-        CreatedAt = r.CreatedAt
+        CreatedAt = r.CreatedAt,
+        PurchaseOrderId = r.PurchaseOrderId,
+        Lines = r.Lines.Select(l => new InventoryDocumentLineResponse { ItemId = l.ItemId, Qty = l.Qty, UomId = l.UomId }).ToList()
     };
 }
 
@@ -361,11 +424,15 @@ public sealed class StockTransferService : IStockTransferService
     private readonly IAuditWriter _audit;
     private readonly IOutboxWriter _outbox;
     private readonly IClock _clock;
+    private readonly IMaterialRequirementRepository _requirements;
+    private readonly IProjectRepository _projects;
 
     public StockTransferService(IStockTransferRepository transfers, IWarehouseRepository warehouses, IItemRepository items,
         IStockLedger ledger, IProjectStatusAdvancer statusAdvancer, ITenantContext tenant, IUnitOfWork uow, IAuditWriter audit,
-        IOutboxWriter outbox, IClock clock)
+        IOutboxWriter outbox, IClock clock, IMaterialRequirementRepository requirements, IProjectRepository projects)
     {
+        _requirements = requirements;
+        _projects = projects;
         _transfers = transfers;
         _warehouses = warehouses;
         _items = items;
@@ -381,9 +448,12 @@ public sealed class StockTransferService : IStockTransferService
     public async Task<InventoryDocumentResponse> CreateAsync(CreateStockTransferRequest request, CancellationToken ct = default)
     {
         var orgId = _tenant.OrganizationId;
+        var toWarehouseId = await ResolveDestinationAsync(request, orgId, ct);
         if (request.FromWarehouseId.HasValue && !await _warehouses.ExistsAsync(orgId, request.FromWarehouseId.Value, ct))
             throw new ConflictException("Source warehouse does not belong to the organization.");
-        if (!await _warehouses.ExistsAsync(orgId, request.ToWarehouseId, ct))
+        if (request.FromWarehouseId == toWarehouseId)
+            throw new ConflictException("The source warehouse is the same as the destination. Pick a different source.");
+        if (!await _warehouses.ExistsAsync(orgId, toWarehouseId, ct))
             throw new ConflictException("Destination warehouse does not belong to the organization.");
         foreach (var line in request.Lines)
             if (!await _items.ExistsAsync(orgId, line.ItemId, ct))
@@ -402,7 +472,7 @@ public sealed class StockTransferService : IStockTransferService
             TransferNumber = number,
             FromWarehouseId = request.FromWarehouseId,
             SourceAddress = request.SourceAddress?.Trim(),
-            ToWarehouseId = request.ToWarehouseId,
+            ToWarehouseId = toWarehouseId,
             ProjectId = request.ProjectId,
             MaterialRequirementId = request.MaterialRequirementId,
             TransportId = request.TransportId?.Trim(),
@@ -435,6 +505,45 @@ public sealed class StockTransferService : IStockTransferService
         }, ct);
 
         return ToDocument(transfer, 0);
+    }
+
+    // The ship-to comes from the planning request: its linked warehouse, else the project's site store (created from the requested address if missing).
+    private async Task<Guid> ResolveDestinationAsync(CreateStockTransferRequest request, Guid orgId, CancellationToken ct)
+    {
+        if (request.ToWarehouseId != Guid.Empty) return request.ToWarehouseId;
+        if (!request.MaterialRequirementId.HasValue)
+            throw new ConflictException("A destination warehouse is required.");
+
+        var req = await _requirements.GetAsync(orgId, request.MaterialRequirementId.Value, track: false, ct)
+                  ?? throw NotFoundException.For("MaterialRequirement", request.MaterialRequirementId.Value);
+        if (req.WarehouseId.HasValue) return req.WarehouseId.Value;
+
+        var all = await _warehouses.ListAsync(orgId, ct);
+        var site = all.FirstOrDefault(w => w.IsActive && w.WarehouseType == WarehouseTypes.SiteStore && w.ProjectId == req.ProjectId);
+        if (site is not null) return site.Id;
+
+        var project = await _projects.GetByIdAsync(orgId, req.ProjectId, track: false, ct)
+                      ?? throw NotFoundException.For("Project", req.ProjectId);
+        var code = $"SITE-{project.Code}";
+        for (var i = 2; await _warehouses.CodeExistsAsync(orgId, code, null, ct); i++) code = $"SITE-{project.Code}-{i}";
+
+        var warehouse = new Warehouse
+        {
+            Id = Guid.NewGuid(),
+            OrganizationId = orgId,
+            Code = code,
+            Name = $"{project.Name} - Site Store",
+            WarehouseType = WarehouseTypes.SiteStore,
+            ProjectId = req.ProjectId,
+            Address = req.DestinationAddress,
+            IsActive = true,
+            CreatedAt = _clock.UtcNow,
+            CreatedBy = _tenant.UserId
+        };
+        await _warehouses.AddAsync(warehouse, ct);
+        // Saved on its own so the transfer's FK to it is satisfied.
+        await _uow.SaveChangesAsync(ct);
+        return warehouse.Id;
     }
 
     public async Task<PagedResult<InventoryDocumentResponse>> ListAsync(InventoryDocFilter filter, CancellationToken ct = default)

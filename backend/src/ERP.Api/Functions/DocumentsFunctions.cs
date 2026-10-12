@@ -120,7 +120,7 @@ public sealed class DocumentsFunctions
         Guid id, CancellationToken ct)
     {
         _auth.RequireAuthenticated();
-        await _service.DeleteAsync(id, _user.HasPermission(Permissions.DocumentDelete), ct);
+        await _service.DeleteAsync(id, _user.HasPermission(Permissions.DocumentDelete), _user.HasPermission(Permissions.PlanManage), ct);
         return Http.NoContent();
     }
 

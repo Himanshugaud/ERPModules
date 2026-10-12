@@ -42,6 +42,8 @@ public sealed class InventoryDocFilter : PageRequest
     public Guid? SupplierId { get; set; }
     public Guid? ProjectId { get; set; }
     public Guid? MaterialRequirementId { get; set; }
+    public Guid? PurchaseOrderId { get; set; }
+    public string? Status { get; set; }
 }
 
 public sealed class BomFilter : PageRequest
@@ -124,6 +126,7 @@ public interface IStockMovementRepository
 
 public interface IGoodsReceiptRepository
 {
+    Task<GoodsReceipt?> GetTrackedAsync(Guid organizationId, Guid id, CancellationToken ct = default);
     Task<GoodsReceipt?> GetAsync(Guid organizationId, Guid id, CancellationToken ct = default);
     Task<PagedResult<GoodsReceipt>> ListAsync(Guid organizationId, InventoryDocFilter filter, CancellationToken ct = default);
     Task<bool> NumberExistsAsync(Guid organizationId, string number, CancellationToken ct = default);

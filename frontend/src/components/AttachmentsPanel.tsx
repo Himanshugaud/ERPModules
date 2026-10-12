@@ -43,10 +43,12 @@ type Props = {
   defaultCategory?: AttachmentCategory;
   users?: UserItem[];
   title?: string;
+  /** Planning files can be removed while the plan is still a draft. */
+  deletable?: boolean;
   onChanged?: () => void;
 };
 
-export default function AttachmentsPanel({ projectId, categories, defaultCategory, users = [], title, onChanged }: Props) {
+export default function AttachmentsPanel({ projectId, categories, defaultCategory, users = [], title, deletable, onChanged }: Props) {
   const { user } = useAuth();
   const permissions = user?.permissions ?? [];
   const canRead = permissions.includes("document.read");
@@ -104,6 +106,13 @@ export default function AttachmentsPanel({ projectId, categories, defaultCategor
     try { await api.downloadAttachment(a); } catch (err) { setError(err instanceof ApiError ? err.message : "Download failed."); }
   }
 
+  async function remove(a: ProjectAttachment) {
+    if (!window.confirm(`Delete ${a.fileName}?`)) return;
+    setError(null);
+    try { await api.deleteAttachment(a.id); await load(); onChanged?.(); }
+    catch (err) { setError(err instanceof ApiError ? err.message : "Unable to delete the file."); }
+  }
+
   const grouped = items.reduce<Record<string, ProjectAttachment[]>>((acc, a) => {
     (acc[a.category] ??= []).push(a);
     return acc;
@@ -149,6 +158,9 @@ export default function AttachmentsPanel({ projectId, categories, defaultCategor
                       {a.description ? ` · ${a.description}` : ""}
                     </div>
                   </div>
+                  {deletable && a.category === "PLANNING" && (
+                    <button type="button" className="btn btn-sm danger" onClick={() => remove(a)}>Delete</button>
+                  )}
                 </div>
               ))}
             </div>

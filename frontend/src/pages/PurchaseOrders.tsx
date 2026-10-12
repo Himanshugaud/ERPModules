@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
-import { api, ApiError, type PurchaseOrder, type Supplier, type Project, type InventoryItem, type Warehouse } from "../api/client";
+import { api, ApiError, type PurchaseOrder, type Supplier, type Project, type InventoryItem, type Warehouse, type InventoryDocument } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { formatDate } from "../lib/ui";
 
@@ -14,6 +14,8 @@ const STATUS_TABS: { value: string; label: string }[] = [
   { value: "RECEIVED", label: "Received" },
   { value: "CLOSED", label: "Closed" }
 ];
+
+const RECEIPTS_TAB = "RECEIPTS";
 
 const badge = (s: string) =>
   s === "APPROVED" || s === "RECEIVED" || s === "CLOSED" ? "green"
@@ -41,6 +43,7 @@ export default function PurchaseOrders() {
   const [viewing, setViewing] = useState<PurchaseOrder | null>(null);
   const [receiving, setReceiving] = useState<PurchaseOrder | null>(null);
   const [rejecting, setRejecting] = useState<PurchaseOrder | null>(null);
+  const [receipts, setReceipts] = useState<InventoryDocument[]>([]);
 
   const supplierMap = Object.fromEntries(suppliers.map((s) => [s.id, s]));
   const projectMap = Object.fromEntries(projects.map((p) => [p.id, p]));
@@ -50,7 +53,12 @@ export default function PurchaseOrders() {
     setLoading(true);
     setError(null);
     try {
-      setOrders((await api.purchaseOrders({ status: status || undefined, pageSize: 100 })).data);
+      const [pos, grns] = await Promise.all([
+        api.purchaseOrders({ status: status === RECEIPTS_TAB ? undefined : status || undefined, pageSize: 100 }),
+        api.goodsReceipts({ status: "PENDING_APPROVAL", pageSize: 100 }).catch(() => ({ data: [] as InventoryDocument[] }))
+      ]);
+      setOrders(pos.data);
+      setReceipts(grns.data);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Unable to load purchase orders.");
     } finally {
@@ -74,6 +82,14 @@ export default function PurchaseOrders() {
     finally { setBusyId(null); }
   }
 
+  async function actReceipt(g: InventoryDocument, fn: () => Promise<unknown>, failure: string) {
+    setBusyId(g.id);
+    setError(null);
+    try { await fn(); await load(); }
+    catch (err) { setError(err instanceof ApiError ? err.message : failure); }
+    finally { setBusyId(null); }
+  }
+
   return (
     <>
       <div className="page-head">
@@ -90,10 +106,43 @@ export default function PurchaseOrders() {
         {STATUS_TABS.map((t) => (
           <span key={t.value} className={`tab ${status === t.value ? "active" : ""}`} style={{ cursor: "pointer" }} onClick={() => setStatus(t.value)}>{t.label}</span>
         ))}
+        <span className={`tab ${status === RECEIPTS_TAB ? "active" : ""}`} style={{ cursor: "pointer" }} onClick={() => setStatus(RECEIPTS_TAB)}>
+          Receipts to approve{receipts.length > 0 && <span className="badge amber" style={{ marginLeft: 6 }}>{receipts.length}</span>}
+        </span>
       </div>
 
       {error && <div className="form-error" style={{ marginBottom: 12 }}>{error}</div>}
 
+      {status === RECEIPTS_TAB ? (
+        <div className="table-wrap">
+          <table>
+            <thead><tr><th>Receipt #</th><th>Purchase order</th><th>Received into</th><th>Materials received</th><th>Value</th><th></th></tr></thead>
+            <tbody>
+              {loading ? (
+                <tr><td colSpan={6}><div className="empty">Loading…</div></td></tr>
+              ) : receipts.length === 0 ? (
+                <tr><td colSpan={6}><div className="empty">No receipts waiting for approval. Stock is updated once a receipt is approved.</div></td></tr>
+              ) : receipts.map((g) => (
+                <tr key={g.id}>
+                  <td>{g.number}</td>
+                  <td>{g.reference ?? "—"}</td>
+                  <td>{warehouses.find((w) => w.id === g.warehouseId)?.name ?? "—"}</td>
+                  <td>{(g.lines ?? []).map((l) => `${itemMap[l.itemId]?.name ?? l.itemId} ×${l.qty}`).join(", ")}</td>
+                  <td>{g.totalValue.toLocaleString(undefined, { maximumFractionDigits: 2 })}</td>
+                  <td>
+                    {canApprove ? (
+                      <div className="row-actions">
+                        <button className="btn btn-sm primary" disabled={busyId === g.id} onClick={() => actReceipt(g, () => api.approveGoodsReceipt(g.id), "Unable to approve the receipt.")}>Approve &amp; add to stock</button>
+                        <button className="btn btn-sm danger" disabled={busyId === g.id} onClick={() => { if (window.confirm(`Reject receipt ${g.number}? Stock will not be updated.`)) actReceipt(g, () => api.rejectGoodsReceipt(g.id), "Unable to reject the receipt."); }}>Reject</button>
+                      </div>
+                    ) : <span className="muted">Awaiting approval</span>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
       <div className="table-wrap">
         <table>
           <thead><tr><th>PO #</th><th>Supplier</th><th>Project</th><th>Expected</th><th>Total</th><th>Status</th><th></th></tr></thead>
@@ -129,6 +178,7 @@ export default function PurchaseOrders() {
           </tbody>
         </table>
       </div>
+      )}
 
       {viewing && (
         <div className="modal-overlay" onClick={() => setViewing(null)}>
@@ -165,7 +215,7 @@ export default function PurchaseOrders() {
       )}
 
       {receiving && (
-        <ReceiveModal po={receiving} warehouses={warehouses} items={items} onClose={() => setReceiving(null)} onSaved={async () => { setReceiving(null); await load(); }} />
+        <ReceiveModal po={receiving} warehouses={warehouses} items={items} onClose={() => setReceiving(null)} onSaved={async () => { setReceiving(null); setStatus(RECEIPTS_TAB); await load(); }} />
       )}
 
       {rejecting && (
@@ -214,6 +264,7 @@ function ReceiveModal(props: { po: PurchaseOrder; warehouses: Warehouse[]; items
         <div className="modal-head"><h3>Receive goods · {props.po.poNumber}</h3><button type="button" className="icon-btn" onClick={props.onClose}>✕</button></div>
         <div className="modal-body">
           {error && <div className="form-error">{error}</div>}
+          <div className="muted" style={{ fontSize: 12, marginBottom: 10 }}>Stock is updated only after this receipt is approved.</div>
           <div className="field">
             <label>Receiving warehouse *</label>
             <select value={warehouseId} onChange={(e) => setWarehouseId(e.target.value)} required>
@@ -239,7 +290,7 @@ function ReceiveModal(props: { po: PurchaseOrder; warehouses: Warehouse[]; items
         </div>
         <div className="modal-foot">
           <button type="button" className="btn" onClick={props.onClose}>Cancel</button>
-          <button className="btn primary" disabled={saving}>{saving ? <span className="spinner" /> : "Post receipt"}</button>
+          <button className="btn primary" disabled={saving}>{saving ? <span className="spinner" /> : "Submit for approval"}</button>
         </div>
       </form>
     </div>

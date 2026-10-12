@@ -48,12 +48,30 @@ public sealed class GoodsReceiptsFunctions
         return Http.Ok(await _service.GetAsync(id, ct));
     }
 
+    [Function("ApproveGoodsReceipt")]
+    public async Task<IActionResult> Approve(
+        [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "v1/goods-receipts/{id:guid}/approve")] HttpRequest req, Guid id, CancellationToken ct)
+    {
+        _auth.Require(Permissions.PurchaseOrderApprove);
+        return Http.Ok(await _service.ApproveAsync(id, ct));
+    }
+
+    [Function("RejectGoodsReceipt")]
+    public async Task<IActionResult> Reject(
+        [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "v1/goods-receipts/{id:guid}/reject")] HttpRequest req, Guid id, CancellationToken ct)
+    {
+        _auth.Require(Permissions.PurchaseOrderApprove);
+        return Http.Ok(await _service.RejectAsync(id, ct));
+    }
+
     private static InventoryDocFilter DocFilter(HttpRequest req) => new()
     {
         Page = Http.IntQuery(req, "page") ?? 1,
         PageSize = Http.IntQuery(req, "pageSize") ?? 25,
         WarehouseId = Http.GuidQuery(req, "warehouseId"),
-        SupplierId = Http.GuidQuery(req, "supplierId")
+        SupplierId = Http.GuidQuery(req, "supplierId"),
+        PurchaseOrderId = Http.GuidQuery(req, "purchaseOrderId"),
+        Status = req.Query["status"].FirstOrDefault()
     };
 }
 

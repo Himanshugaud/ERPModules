@@ -315,6 +315,7 @@ public sealed class InventoryDocumentResponse
     public Guid? ToWarehouseId { get; set; }
     public Guid? ProjectId { get; set; }
     public Guid? MaterialRequirementId { get; set; }
+    public Guid? PurchaseOrderId { get; set; }
     public Guid? SupplierId { get; set; }
     public string Status { get; set; } = default!;
     public DateOnly? DocumentDate { get; set; }

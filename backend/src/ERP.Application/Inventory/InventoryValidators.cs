@@ -115,7 +115,10 @@ public sealed class CreateStockTransferRequestValidator : AbstractValidator<Crea
         RuleFor(x => x)
             .Must(x => x.FromWarehouseId.HasValue || !string.IsNullOrWhiteSpace(x.SourceAddress))
             .WithMessage("Provide a source: either a warehouse or a source address (e.g. a supplier).");
-        RuleFor(x => x.ToWarehouseId).NotEmpty()
+        RuleFor(x => x)
+            .Must(x => x.ToWarehouseId != Guid.Empty || x.MaterialRequirementId.HasValue)
+            .WithMessage("Provide a destination warehouse, or a material request to take it from.");
+        RuleFor(x => x.ToWarehouseId)
             .Must((req, toId) => !req.FromWarehouseId.HasValue || toId != req.FromWarehouseId.Value)
             .WithMessage("Source and destination warehouses must differ.");
         RuleFor(x => x.TransportId).MaximumLength(50);

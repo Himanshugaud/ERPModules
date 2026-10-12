@@ -245,11 +245,17 @@ public sealed class GoodsReceiptRepository : IGoodsReceiptRepository
         _db.GoodsReceipts.AsNoTracking().Include(g => g.Lines)
             .FirstOrDefaultAsync(g => g.OrganizationId == organizationId && g.Id == id, ct);
 
+    public Task<GoodsReceipt?> GetTrackedAsync(Guid organizationId, Guid id, CancellationToken ct = default) =>
+        _db.GoodsReceipts.Include(g => g.Lines)
+            .FirstOrDefaultAsync(g => g.OrganizationId == organizationId && g.Id == id, ct);
+
     public async Task<PagedResult<GoodsReceipt>> ListAsync(Guid organizationId, InventoryDocFilter filter, CancellationToken ct = default)
     {
-        var q = _db.GoodsReceipts.AsNoTracking().Where(g => g.OrganizationId == organizationId);
+        var q = _db.GoodsReceipts.AsNoTracking().Include(g => g.Lines).Where(g => g.OrganizationId == organizationId);
         if (filter.WarehouseId.HasValue) q = q.Where(g => g.WarehouseId == filter.WarehouseId);
         if (filter.SupplierId.HasValue) q = q.Where(g => g.SupplierId == filter.SupplierId);
+        if (filter.PurchaseOrderId.HasValue) q = q.Where(g => g.PurchaseOrderId == filter.PurchaseOrderId);
+        if (!string.IsNullOrWhiteSpace(filter.Status)) q = q.Where(g => g.Status == filter.Status);
         var items = await q.OrderByDescending(g => g.CreatedAt).Skip(filter.Skip).Take(filter.PageSize).ToListAsync(ct);
         var total = await q.TotalAsync(filter, items.Count, ct);
         return new PagedResult<GoodsReceipt> { Items = items, TotalItems = total, Page = filter.Page, PageSize = filter.PageSize };

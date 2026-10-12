@@ -285,9 +285,11 @@ export interface InventoryDocument {
   toWarehouseId?: string;
   projectId?: string;
   materialRequirementId?: string;
+  purchaseOrderId?: string;
   supplierId?: string;
   status: string;
   documentDate?: string;
+  reference?: string;
   lineCount: number;
   totalValue: number;
   createdAt: string;
@@ -630,6 +632,10 @@ export const api = {
     request<Paged<InventoryDocument>>(`/goods-receipts?${qstr(params)}`),
   createGoodsReceipt: (payload: Record<string, unknown>) =>
     request<{ data: InventoryDocument }>("/goods-receipts", { method: "POST", body: JSON.stringify(payload) }).then((r) => r.data),
+  approveGoodsReceipt: (id: string) =>
+    request<{ data: InventoryDocument }>(`/goods-receipts/${id}/approve`, { method: "POST" }).then((r) => r.data),
+  rejectGoodsReceipt: (id: string) =>
+    request<{ data: InventoryDocument }>(`/goods-receipts/${id}/reject`, { method: "POST" }).then((r) => r.data),
 
   purchaseOrders: (params: Record<string, string | number | undefined> = {}) =>
     request<Paged<PurchaseOrder>>(`/purchase-orders?${qstr(params)}`),

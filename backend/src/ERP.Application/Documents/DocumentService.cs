@@ -27,7 +27,7 @@ public interface IDocumentService
     Task<DocumentResponse> UploadAsync(Guid projectId, string category, string fileName, string? contentType, long length,
         Stream content, string? description, CancellationToken ct = default);
     Task<DocumentFile> DownloadAsync(Guid id, CancellationToken ct = default);
-    Task DeleteAsync(Guid id, bool canDeleteAny, CancellationToken ct = default);
+    Task DeleteAsync(Guid id, bool canDeleteAny, bool canManagePlan, CancellationToken ct = default);
     Task<IReadOnlyList<DocumentResponse>> ListForDraftAsync(Guid draftId, CancellationToken ct = default);
     Task<DocumentResponse> UploadToDraftAsync(Guid draftId, string fileName, string? contentType, long length,
         Stream content, string? description, CancellationToken ct = default);
@@ -58,10 +58,12 @@ public sealed class DocumentService : IDocumentService
     private readonly IUnitOfWork _uow;
     private readonly IAuditWriter _audit;
     private readonly IClock _clock;
+    private readonly IProjectPlanRepository _plans;
 
     public DocumentService(IDocumentRepository documents, IProjectRepository projects, IOrganizationRepository orgs,
-        IBlobStorage blobs, ITenantContext tenant, IUnitOfWork uow, IAuditWriter audit, IClock clock)
+        IBlobStorage blobs, ITenantContext tenant, IUnitOfWork uow, IAuditWriter audit, IClock clock, IProjectPlanRepository plans)
     {
+        _plans = plans;
         _documents = documents;
         _projects = projects;
         _orgs = orgs;
@@ -201,14 +203,25 @@ public sealed class DocumentService : IDocumentService
         return new DocumentFile(blob.Content, doc.FileName, doc.ContentType ?? blob.ContentType ?? "application/octet-stream");
     }
 
-    public async Task DeleteAsync(Guid id, bool canDeleteAny, CancellationToken ct = default)
+    public async Task DeleteAsync(Guid id, bool canDeleteAny, bool canManagePlan, CancellationToken ct = default)
     {
         var doc = await _documents.GetAsync(_tenant.OrganizationId, id, track: true, ct) ?? throw NotFoundException.For("Document", id);
-        // Only unconverted requirement-draft files can be removed; project attachments are a permanent record.
-        if (doc.EntityType != DraftEntity)
+        if (doc.EntityType == DraftEntity)
+        {
+            if (!canDeleteAny && doc.UploadedBy != _tenant.UserId)
+                throw new ForbiddenException("Only the uploader or a document manager can delete this attachment.");
+        }
+        else if (doc.EntityType == ProjectEntity && doc.Category == DocumentCategories.Planning)
+        {
+            // Planning files may be removed while the plan is still a draft; once published they are a permanent record.
+            var plan = await _plans.GetPlanAsync(_tenant.OrganizationId, doc.EntityId, track: false, ct);
+            if (plan?.Status == PlanStatuses.Published)
+                throw new ForbiddenException("Planning attachments are locked once the plan is published.");
+            if (!canManagePlan && !canDeleteAny && doc.UploadedBy != _tenant.UserId)
+                throw new ForbiddenException("Only the uploader or a planner can delete this attachment.");
+        }
+        else
             throw new ForbiddenException("Project attachments cannot be deleted.");
-        if (!canDeleteAny && doc.UploadedBy != _tenant.UserId)
-            throw new ForbiddenException("Only the uploader or a document manager can delete this attachment.");
 
         // Soft delete: the blob is retained for audit/recovery.
         doc.Status = "DELETED";

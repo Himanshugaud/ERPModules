@@ -63,15 +63,22 @@ async function buildWorkbook(title: string, orgName: string, meta: Meta, rows: E
   return wb;
 }
 
-async function save(wb: Awaited<ReturnType<typeof buildWorkbook>>, fileName: string) {
+async function toBlob(wb: Awaited<ReturnType<typeof buildWorkbook>>) {
   const buffer = await wb.xlsx.writeBuffer();
-  const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+  return new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+}
+
+function downloadBlob(blob: Blob, fileName: string) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
   a.download = fileName;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+async function save(wb: Awaited<ReturnType<typeof buildWorkbook>>, fileName: string) {
+  downloadBlob(await toBlob(wb), fileName);
 }
 
 const safe = (s: string) => s.replace(/[\\/:*?"<>|]+/g, "").trim() || "Requirement Sheet";
@@ -87,6 +94,18 @@ export interface ExportContext {
 
 /** Downloads a saved requirement (sheet) as an .xlsx that can be edited and imported back. */
 export async function downloadRequirementXlsx(req: MaterialRequirement, ctx: ExportContext) {
+  const wb = await requirementWorkbook(req, ctx);
+  await save(wb, `${safe(ctx.projectName)}_${safe(ctx.sheetTypeName ?? "Material")}_${req.reqNumber}.xlsx`);
+}
+
+/** The sheet as a named .xlsx file, e.g. "Material Sheet - Structure & Civil - Site Office - MREQ-…xlsx", ready to store with the project. */
+export async function requirementXlsxFile(req: MaterialRequirement, ctx: ExportContext): Promise<File> {
+  const wb = await requirementWorkbook(req, ctx);
+  const parts = ["Material Sheet", safe(ctx.sheetTypeName ?? "Custom Items"), req.blockName ? safe(req.blockName) : "", req.reqNumber].filter(Boolean);
+  return new File([await toBlob(wb)], `${parts.join(" - ")}.xlsx`, { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+}
+
+async function requirementWorkbook(req: MaterialRequirement, ctx: ExportContext) {
   const itemMap = Object.fromEntries(ctx.items.map((i) => [i.id, i]));
   const uomMap = Object.fromEntries(ctx.uoms.map((u) => [u.id, u]));
   const rows: ExportRow[] = req.lines
@@ -114,7 +133,7 @@ export async function downloadRequirementXlsx(req: MaterialRequirement, ctx: Exp
     { label: "Notes", value: req.notes ?? "" }
   ];
   const wb = await buildWorkbook(`MATERIAL REQUIREMENT PLANNING${ctx.sheetTypeName ? ` — ${ctx.sheetTypeName}` : ""}`, ctx.orgName, meta, rows);
-  await save(wb, `${safe(ctx.projectName)}_${safe(ctx.sheetTypeName ?? "Material")}_${req.reqNumber}.xlsx`);
+  return wb;
 }
 
 /** Blank sheet with every item of the sheet type, ready to fill in and import. */

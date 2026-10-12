@@ -25,7 +25,7 @@ export default function InventoryRequests() {
   const [status, setStatus] = useState("SUBMITTED");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [rejecting, setRejecting] = useState<MaterialRequirement | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [arranging, setArranging] = useState<MaterialRequirement | null>(null);
   const [viewing, setViewing] = useState<MaterialRequirement | null>(null);
   const [creatingPo, setCreatingPo] = useState<MaterialRequirement | null>(null);
@@ -65,27 +65,22 @@ export default function InventoryRequests() {
   }, []);
   useEffect(() => { load(); }, [status]);
 
-  async function approveOnly(r: MaterialRequirement) {
-    setError(null);
-    try {
-      await api.approveMaterialRequirement(r.id);
-      await load();
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Unable to approve the request.");
-    }
-  }
+  // Approval is part of the action now: a new request is approved as it is arranged or ordered.
+  const canShip = (r: MaterialRequirement) => canArrange && (r.status !== "SUBMITTED" || canApprove);
+  const canOrder = (r: MaterialRequirement) => canConvert && (r.status !== "SUBMITTED" || canApprove);
+  const isOpen = (r: MaterialRequirement) => r.status === "SUBMITTED" || r.status === "APPROVED" || r.status === "CONVERTED";
 
   return (
     <>
       <div className="page-head">
         <div>
           <h1 className="page-title">Material Requests</h1>
-          <div className="page-sub">Review published plans from Planning. Ship from warehouse stock, or raise a purchase order for what is missing and ship once it is received.</div>
+          <div className="page-sub">Plans published by Planning arrive here with the ship-to already set. Choose the source warehouse and mark the request ready to ship, or raise a purchase order for what is not in stock.</div>
         </div>
         <div className="head-actions">
           <select value={status} onChange={(e) => setStatus(e.target.value)}>
-            <option value="SUBMITTED">Pending Review</option>
-            <option value="APPROVED">Approved (arrange stock / raise PO)</option>
+            <option value="SUBMITTED">New requests</option>
+            <option value="APPROVED">In progress (ship / PO)</option>
             <option value="CONVERTED">PO raised (ship when received)</option>
             <option value="REJECTED">Rejected</option>
             <option value="">All</option>
@@ -94,6 +89,7 @@ export default function InventoryRequests() {
       </div>
 
       {error && <div className="form-error" style={{ marginBottom: 12 }}>{error}</div>}
+      {notice && <div className="draft-note" style={{ marginBottom: 12 }}><span className="dot" />{notice}</div>}
 
       <div className="table-wrap">
         <table>
@@ -122,18 +118,11 @@ export default function InventoryRequests() {
                   <td><span className={`badge ${r.status === "SUBMITTED" ? "blue" : r.status === "APPROVED" ? "green" : r.status === "REJECTED" ? "red" : "gray"}`}>{r.status}</span></td>
                   <td>
                     <div className="row-actions">
-                      {r.status === "SUBMITTED" && canApprove && (
-                        <>
-                          <button className="btn btn-sm primary" onClick={(e) => { e.stopPropagation(); setArranging(r); }}>Approve &amp; Arrange</button>
-                          <button className="btn btn-sm" onClick={(e) => { e.stopPropagation(); approveOnly(r); }}>Approve</button>
-                          <button className="btn btn-sm danger" onClick={(e) => { e.stopPropagation(); setRejecting(r); }}>Reject</button>
-                        </>
-                      )}
-                      {r.status === "APPROVED" && canConvert && (
+                      {isOpen(r) && r.status !== "CONVERTED" && canOrder(r) && (
                         <button className="btn btn-sm" onClick={(e) => { e.stopPropagation(); setCreatingPo(r); }}>Create PO</button>
                       )}
-                      {(r.status === "APPROVED" || r.status === "CONVERTED") && canArrange && (
-                        <button className="btn btn-sm primary" onClick={(e) => { e.stopPropagation(); setArranging(r); }}>Arrange Shipment</button>
+                      {isOpen(r) && canShip(r) && (
+                        <button className="btn btn-sm primary" onClick={(e) => { e.stopPropagation(); setArranging(r); }}>Ready to Ship</button>
                       )}
                     </div>
                   </td>
@@ -144,14 +133,6 @@ export default function InventoryRequests() {
         </table>
       </div>
 
-      {rejecting && (
-        <RejectModal
-          requirement={rejecting}
-          onClose={() => setRejecting(null)}
-          onRejected={async () => { setRejecting(null); await load(); }}
-        />
-      )}
-
       {arranging && (
         <ArrangeTransferModal
           requirement={arranging}
@@ -160,7 +141,7 @@ export default function InventoryRequests() {
           uoms={uoms}
           stockByItemWarehouse={stockByItemWarehouse}
           onClose={() => setArranging(null)}
-          onArranged={async () => { setArranging(null); await load(); }}
+          onArranged={async (number) => { setArranging(null); setNotice(`Ready to ship: ${number} has been sent to the Shipment team.`); await load(); }}
         />
       )}
 
@@ -173,13 +154,10 @@ export default function InventoryRequests() {
           uoms={uoms}
           users={users}
           stockByItem={stockByItem}
-          canApprove={canApprove}
-          canArrange={canArrange}
-          canConvert={canConvert}
+          canShip={isOpen(viewing) && canShip(viewing)}
+          canOrder={isOpen(viewing) && viewing.status !== "CONVERTED" && canOrder(viewing)}
           onClose={() => setViewing(null)}
-          onReject={() => { setRejecting(viewing); setViewing(null); }}
           onArrange={() => { setArranging(viewing); setViewing(null); }}
-          onApproveOnly={async () => { const r = viewing; setViewing(null); await approveOnly(r); }}
           onCreatePo={() => { setCreatingPo(viewing); setViewing(null); }}
         />
       )}
@@ -192,7 +170,7 @@ export default function InventoryRequests() {
           uoms={uoms}
           stockByItem={stockByItem}
           onClose={() => setCreatingPo(null)}
-          onCreated={async () => { setCreatingPo(null); await load(); }}
+          onCreated={async (poNumber) => { setCreatingPo(null); setNotice(`Purchase order ${poNumber} created. Receive and approve it from Purchase Orders to add the stock.`); await load(); }}
         />
       )}
     </>
@@ -207,13 +185,10 @@ function RequestDetailModal(props: {
   uoms: Uom[];
   users: UserItem[];
   stockByItem: Record<string, number>;
-  canApprove: boolean;
-  canArrange: boolean;
-  canConvert: boolean;
+  canShip: boolean;
+  canOrder: boolean;
   onClose: () => void;
-  onReject: () => void;
   onArrange: () => void;
-  onApproveOnly: () => void;
   onCreatePo: () => void;
 }) {
   const r = props.requirement;
@@ -225,10 +200,25 @@ function RequestDetailModal(props: {
   const [loadingShipments, setLoadingShipments] = useState(true);
   const [po, setPo] = useState<PurchaseOrder | null>(null);
   const [fabOrders, setFabOrders] = useState<WorkOrder[]>([]);
+  const [sending, setSending] = useState(false);
+  const [fabError, setFabError] = useState<string | null>(null);
+  const canRelease = (user?.permissions ?? []).includes("workorder.release");
+  const loadFab = () => api.workOrders({ materialRequirementId: r.id, pageSize: 50 }).then((res) => setFabOrders(res.data)).catch(() => setFabOrders([]));
 
-  useEffect(() => {
-    api.workOrders({ materialRequirementId: r.id, pageSize: 50 }).then((res) => setFabOrders(res.data)).catch(() => setFabOrders([]));
-  }, [r.id]);
+  async function sendToFabrication() {
+    setSending(true);
+    setFabError(null);
+    try {
+      for (const w of fabOrders.filter((x) => x.status === "DRAFT")) await api.releaseWorkOrder(w.id);
+      await loadFab();
+    } catch (err) {
+      setFabError(err instanceof ApiError ? err.message : "Unable to send to the fabrication team.");
+    } finally {
+      setSending(false);
+    }
+  }
+
+  useEffect(() => { loadFab(); }, [r.id]);
   useEffect(() => {
     if (!r.purchaseOrderId) { setPo(null); return; }
     api.purchaseOrder(r.purchaseOrderId).then(setPo).catch(() => setPo(null));
@@ -317,7 +307,13 @@ function RequestDetailModal(props: {
 
           {fabOrders.length > 0 && (
             <>
-              <label style={{ fontSize: 13, fontWeight: 600, marginTop: 18, display: "block" }}>Fabrication list (factory-made items)</label>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 18 }}>
+                <label style={{ fontSize: 13, fontWeight: 600 }}>Fabrication list (factory-made items)</label>
+                {fabOrders.some((w) => w.status === "DRAFT") && canRelease && (
+                  <button type="button" className="btn btn-sm primary" disabled={sending} onClick={sendToFabrication}>{sending ? <span className="spinner" /> : "Send to fabrication team"}</button>
+                )}
+              </div>
+              {fabError && <div className="form-error" style={{ marginTop: 6 }}>{fabError}</div>}
               <div className="table-wrap" style={{ marginTop: 6 }}>
                 <table>
                   <thead><tr><th>WO #</th><th>Item</th><th>Qty to make</th><th>Status</th></tr></thead>
@@ -327,7 +323,7 @@ function RequestDetailModal(props: {
                         <td className="cell-code">{w.woNumber}</td>
                         <td>{itemMap[w.outputItemId]?.name ?? w.outputItemId}</td>
                         <td>{w.plannedQty}</td>
-                        <td><span className={`badge ${w.status === "COMPLETED" ? "green" : w.status === "RELEASED" ? "blue" : "gray"}`}>{w.status === "DRAFT" ? "To start" : w.status === "RELEASED" ? "In fabrication" : w.status}</span></td>
+                        <td><span className={`badge ${w.status === "COMPLETED" ? "green" : w.status === "RELEASED" ? "blue" : "gray"}`}>{w.status === "DRAFT" ? "Not sent yet" : w.status === "RELEASED" ? "With fabrication team" : w.status === "COMPLETED" ? "Fabricated" : w.status}</span></td>
                       </tr>
                     ))}
                   </tbody>
@@ -369,72 +365,19 @@ function RequestDetailModal(props: {
             uoms: props.uoms,
             sheetTypeName: r.sheetType
           })}>⭳ Excel</button>
-          {r.status === "SUBMITTED" && props.canApprove && (
-            <>
-              <button className="btn danger" onClick={props.onReject}>Reject</button>
-              <button className="btn" onClick={props.onApproveOnly}>Approve</button>
-              <button className="btn primary" onClick={props.onArrange}>Approve &amp; Arrange Shipment</button>
-            </>
-          )}
-          {r.status === "APPROVED" && props.canConvert && (
-            <button className="btn" onClick={props.onCreatePo}>Create Purchase Order</button>
-          )}
-          {(r.status === "APPROVED" || r.status === "CONVERTED") && props.canArrange && (
-            <button className="btn primary" onClick={props.onArrange}>Arrange Shipment</button>
-          )}
+          {props.canOrder && <button className="btn" onClick={props.onCreatePo}>Create Purchase Order</button>}
+          {props.canShip && <button className="btn primary" onClick={props.onArrange}>Ready to Ship</button>}
         </div>
       </div>
     </div>
   );
 }
 
-function RejectModal(props: { requirement: MaterialRequirement; onClose: () => void; onRejected: () => void }) {
-  const [reason, setReason] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
-
-  async function submit(e: FormEvent) {
-    e.preventDefault();
-    if (!reason.trim()) { setError("A reason is required."); return; }
-    setSaving(true);
-    setError(null);
-    try {
-      await api.rejectMaterialRequirement(props.requirement.id, reason.trim());
-      props.onRejected();
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Unable to reject the request.");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  return (
-    <div className="modal-overlay" onClick={props.onClose}>
-      <form className="modal" onClick={(e) => e.stopPropagation()} onSubmit={submit}>
-        <div className="modal-head">
-          <h3>Reject {props.requirement.reqNumber}</h3>
-          <button type="button" className="icon-btn" onClick={props.onClose}>✕</button>
-        </div>
-        <div className="modal-body">
-          {error && <div className="form-error">{error}</div>}
-          <div className="field">
-            <label>Reason *</label>
-            <input value={reason} onChange={(e) => setReason(e.target.value)} required placeholder="Why is this being rejected?" />
-          </div>
-        </div>
-        <div className="modal-foot">
-          <button type="button" className="btn" onClick={props.onClose}>Cancel</button>
-          <button className="btn danger" disabled={saving}>{saving ? <span className="spinner" /> : "Reject"}</button>
-        </div>
-      </form>
-    </div>
-  );
-}
-
-function CreatePoModal(props: { requirement: MaterialRequirement; warehouses: Warehouse[]; items: InventoryItem[]; uoms: Uom[]; stockByItem: Record<string, number>; onClose: () => void; onCreated: () => void }) {
+function CreatePoModal(props: { requirement: MaterialRequirement; warehouses: Warehouse[]; items: InventoryItem[]; uoms: Uom[]; stockByItem: Record<string, number>; onClose: () => void; onCreated: (poNumber: string) => void }) {
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [supplierId, setSupplierId] = useState("");
-  const defaultWarehouse = props.warehouses.find((w) => w.id === props.requirement.warehouseId) ?? props.warehouses.find((w) => w.warehouseType === "MAIN_STORE") ?? props.warehouses[0];
+  // Purchased goods arrive at a store first; the shipment to site is arranged afterwards.
+  const defaultWarehouse = props.warehouses.find((w) => w.warehouseType === "MAIN_STORE") ?? props.warehouses[0];
   const [warehouseId, setWarehouseId] = useState(defaultWarehouse?.id ?? "");
   const [expectedDate, setExpectedDate] = useState(props.requirement.requiredDate ?? "");
   const [notes, setNotes] = useState("");
@@ -463,14 +406,15 @@ function CreatePoModal(props: { requirement: MaterialRequirement; warehouses: Wa
     if (selected.some((r) => !(Number(r.qty) > 0) || r.unitPrice === "" || Number(r.unitPrice) < 0)) { setError("Enter a quantity and unit price for every selected material."); return; }
     setSaving(true);
     try {
-      await api.convertMaterialRequirementToPo(props.requirement.id, {
+      if (props.requirement.status === "SUBMITTED") await api.approveMaterialRequirement(props.requirement.id);
+      const po = await api.convertMaterialRequirementToPo(props.requirement.id, {
         supplierId,
         warehouseId: warehouseId || undefined,
         expectedDate: expectedDate || undefined,
         notes: notes.trim() || undefined,
         lines: selected.map((r) => ({ materialRequirementLineId: r.lineId, qty: Number(r.qty), unitPrice: Number(r.unitPrice), taxRatePercent: Number(r.tax || 0) }))
       });
-      props.onCreated();
+      props.onCreated(po.poNumber);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Unable to create the purchase order.");
     } finally {
@@ -547,21 +491,20 @@ function CreatePoModal(props: { requirement: MaterialRequirement; warehouses: Wa
   );
 }
 
-function ArrangeTransferModal(props: { requirement: MaterialRequirement; warehouses: Warehouse[]; items: InventoryItem[]; uoms: Uom[]; stockByItemWarehouse: Record<string, number>; onClose: () => void; onArranged: () => void }) {
+function ArrangeTransferModal(props: { requirement: MaterialRequirement; warehouses: Warehouse[]; items: InventoryItem[]; uoms: Uom[]; stockByItemWarehouse: Record<string, number>; onClose: () => void; onArranged: (transferNumber: string) => void }) {
   const needsApproval = props.requirement.status === "SUBMITTED";
   const linkedDestination = props.warehouses.find((w) => w.id === props.requirement.warehouseId);
-  const sourceCandidates = props.warehouses.filter((w) => w.id !== props.requirement.warehouseId);
+  const destinationLabel = props.requirement.destinationAddress || (linkedDestination ? (linkedDestination.address ? `${linkedDestination.name} — ${linkedDestination.address}` : linkedDestination.name) : "Project site store");
+  const sourceCandidates = props.warehouses.filter((w) => w.id !== props.requirement.warehouseId && !(w.warehouseType === "SITE_STORE" && w.projectId === props.requirement.projectId));
   const defaultSourceWarehouse = sourceCandidates.find((w) => w.warehouseType === "MAIN_STORE") ?? sourceCandidates[0];
   const [fromWarehouseId, setFromWarehouseId] = useState(defaultSourceWarehouse?.id ?? "");
   const [sourceAddress, setSourceAddress] = useState(defaultSourceWarehouse ? (defaultSourceWarehouse.address ? `${defaultSourceWarehouse.name} — ${defaultSourceWarehouse.address}` : defaultSourceWarehouse.name) : "");
-  const [toWarehouseId, setToWarehouseId] = useState(linkedDestination?.id ?? "");
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [loadingHistory, setLoadingHistory] = useState(true);
   const [lines, setLines] = useState<ArrangeLine[]>([]);
   const itemMap = Object.fromEntries(props.items.map((it) => [it.id, it]));
   const uomMap = Object.fromEntries(props.uoms.map((u) => [u.id, u]));
-  const toCandidates = props.warehouses.filter((w) => w.id !== fromWarehouseId);
 
   // Sum qty already shipped in prior (partial) transfers against this requirement, so we can offer the remaining balance.
   useEffect(() => {
@@ -589,6 +532,14 @@ function ArrangeTransferModal(props: { requirement: MaterialRequirement; warehou
   const setLineQty = (itemId: string, v: string) => setLines((ls) => ls.map((l) => (l.itemId === itemId ? { ...l, shipQty: v } : l)));
   const toggleLine = (itemId: string) => setLines((ls) => ls.map((l) => (l.itemId === itemId ? { ...l, include: !l.include } : l)));
 
+  // Ship what the source holds now; the rest is left on the request for a purchase order.
+  function shipWhatIsInStock() {
+    setLines((ls) => ls.map((l) => {
+      const qty = Math.min(l.remainingQty, props.stockByItemWarehouse[`${l.itemId}|${fromWarehouseId}`] ?? 0);
+      return { ...l, shipQty: String(qty), include: qty > 0 };
+    }));
+  }
+
   function linkSourceWarehouse(id: string) {
     setFromWarehouseId(id);
     const w = sourceCandidates.find((cw) => cw.id === id);
@@ -604,7 +555,6 @@ function ArrangeTransferModal(props: { requirement: MaterialRequirement; warehou
     e.preventDefault();
     setError(null);
     if (!sourceAddress.trim()) { setError("Enter the source — a warehouse or a supplier address."); return; }
-    if (!toWarehouseId) { setError("Choose a warehouse to ship to."); return; }
     const selected = lines.filter((l) => l.include && Number(l.shipQty) > 0);
     if (!selected.length) { setError("Select at least one material with a quantity to ship."); return; }
     if (shortfalls.length) { setError("Stock is not available for all selected materials at the chosen warehouse. Adjust quantities, pick another warehouse, or source from a supplier address."); return; }
@@ -614,13 +564,13 @@ function ArrangeTransferModal(props: { requirement: MaterialRequirement; warehou
       const transfer = await api.createStockTransfer({
         fromWarehouseId: fromWarehouseId || undefined,
         sourceAddress: sourceAddress.trim(),
-        toWarehouseId,
+        toWarehouseId: props.requirement.warehouseId || undefined,
         projectId: props.requirement.projectId,
         materialRequirementId: props.requirement.id,
         lines: selected.map((l) => ({ itemId: l.itemId, qty: Number(l.shipQty), uomId: l.uomId }))
       });
       await api.approveStockTransfer(transfer.id);
-      props.onArranged();
+      props.onArranged(transfer.number);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Unable to arrange the shipment.");
     } finally {
@@ -632,43 +582,38 @@ function ArrangeTransferModal(props: { requirement: MaterialRequirement; warehou
     <div className="modal-overlay" onClick={props.onClose}>
       <form className="modal" onClick={(e) => e.stopPropagation()} onSubmit={submit} style={{ maxWidth: 760 }}>
         <div className="modal-head">
-          <h3>{needsApproval ? "Approve & Arrange Shipment" : "Arrange Shipment"} · {props.requirement.reqNumber}</h3>
+          <h3>Ready to Ship · {props.requirement.reqNumber}</h3>
           <button type="button" className="icon-btn" onClick={props.onClose}>✕</button>
         </div>
         <div className="modal-body">
           {error && <div className="form-error">{error}</div>}
-          {props.requirement.destinationAddress && (
-            <div className="muted" style={{ fontSize: 13, marginBottom: 8 }}>Requested destination: {props.requirement.destinationAddress}</div>
-          )}
+          <div className="field">
+            <label>Ship To (from the planning request)</label>
+            <input value={destinationLabel} readOnly disabled />
+          </div>
           <div className="field">
             <label>Source (Warehouse or Supplier Address) *</label>
-            <input value={sourceAddress} onChange={(e) => setSourceAddress(e.target.value)} required placeholder="Type the source address, or link a warehouse below to auto-fill" />
+            <input value={sourceAddress} onChange={(e) => setSourceAddress(e.target.value)} required placeholder="Type the source address, or pick a source warehouse below to auto-fill" />
           </div>
-          <div className="row2">
-            <div className="field">
-              <label>Link to Warehouse (optional, enables stock check)</label>
-              <select value={fromWarehouseId} onChange={(e) => linkSourceWarehouse(e.target.value)}>
-                <option value="">Not linked — external source (e.g. supplier)</option>
-                {sourceCandidates.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
-              </select>
-            </div>
-            <div className="field">
-              <label>Ship To (warehouse) *</label>
-              <select value={toWarehouseId} onChange={(e) => setToWarehouseId(e.target.value)} required>
-                <option value="">Select warehouse…</option>
-                {toCandidates.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
-              </select>
-            </div>
+          <div className="field">
+            <label>Source warehouse (optional, enables stock check)</label>
+            <select value={fromWarehouseId} onChange={(e) => linkSourceWarehouse(e.target.value)}>
+              <option value="">Not linked — external source (e.g. supplier)</option>
+              {sourceCandidates.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
+            </select>
           </div>
           {!fromWarehouseId && (
             <div className="muted" style={{ fontSize: 12, marginTop: -8, marginBottom: 14 }}>Sourcing from an external address — stock availability can't be verified automatically.</div>
           )}
           <div className="muted" style={{ fontSize: 12, marginBottom: 14 }}>
-            Once arranged, this shipment goes to the Transport team, who assign the vehicle and driver and dispatch it to site.
+            Marking this ready to ship publishes it to the Shipment team, who assign the vehicle and driver and dispatch it to site.
           </div>
-          <label style={{ fontSize: 13, fontWeight: 600 }}>
-            Materials to ship <span className="muted" style={{ fontWeight: 400 }}>· uncheck or reduce qty for a partial shipment</span>
-          </label>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <label style={{ fontSize: 13, fontWeight: 600 }}>
+              Materials to ship <span className="muted" style={{ fontWeight: 400 }}>· uncheck or reduce qty for a partial shipment</span>
+            </label>
+            {fromWarehouseId && <button type="button" className="btn btn-sm" onClick={shipWhatIsInStock}>Ship only what's in stock</button>}
+          </div>
           {loadingHistory ? (
             <div className="skeleton" style={{ height: 60, marginTop: 6 }} />
           ) : (
@@ -712,7 +657,7 @@ function ArrangeTransferModal(props: { requirement: MaterialRequirement; warehou
         <div className="modal-foot">
           <button type="button" className="btn" onClick={props.onClose}>Cancel</button>
           <button className="btn primary" disabled={saving || shortfalls.length > 0}>
-            {saving ? <span className="spinner" /> : needsApproval ? "Approve & Arrange Shipment" : "Arrange & Approve Shipment"}
+            {saving ? <span className="spinner" /> : "Ready to Ship"}
           </button>
         </div>
       </form>

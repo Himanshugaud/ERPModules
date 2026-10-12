@@ -16,7 +16,7 @@ type Props = {
   /** Editing a draft: it is replaced by the new version on save. */
   replace?: MaterialRequirement;
   onClose: () => void;
-  onSaved: () => void;
+  onSaved: (saved: MaterialRequirement, replaced?: MaterialRequirement) => void;
 };
 
 export default function SheetCreator({ project, catalog, warehouses, asDraft, typeCode, parsed, replace, onClose, onSaved }: Props) {
@@ -119,7 +119,7 @@ export default function SheetCreator({ project, catalog, warehouses, asDraft, ty
     );
     setBusy(true);
     try {
-      await api.createMaterialRequirement({
+      const saved = await api.createMaterialRequirement({
         projectId: project.id,
         asDraft,
         sheetType: type.code,
@@ -133,7 +133,7 @@ export default function SheetCreator({ project, catalog, warehouses, asDraft, ty
         lines
       });
       if (replace) await api.deleteMaterialRequirement(replace.id).catch(() => undefined);
-      onSaved();
+      onSaved(saved, replace);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Unable to save the sheet.");
       setBusy(false);

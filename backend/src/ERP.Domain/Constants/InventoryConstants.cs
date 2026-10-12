@@ -49,6 +49,13 @@ public static class TransferStatuses
     public const string Cancelled = "CANCELLED";
 }
 
+public static class GoodsReceiptStatuses
+{
+    public const string PendingApproval = "PENDING_APPROVAL";
+    public const string Posted = "POSTED";
+    public const string Rejected = "REJECTED";
+}
+
 public static class MovementDirection
 {
     public const string In = "IN";

@@ -351,6 +351,7 @@ function GoodsReceiptModal(props: { items: InventoryItem[]; warehouses: Warehous
 
           {mode === "po" ? (
             <>
+              <div className="muted" style={{ fontSize: 12, marginBottom: 10 }}>Receipts against a purchase order update stock only after they are approved (Purchase Orders → Receipts to approve).</div>
               <div className="row2">
                 <div className="field"><label>Purchase Order *</label>
                   <select value={poId} onChange={(e) => setPoId(e.target.value)} required>
@@ -475,7 +476,7 @@ function GoodsReceiptModal(props: { items: InventoryItem[]; warehouses: Warehous
         </div>
         <div className="modal-foot">
           <button type="button" className="btn" onClick={props.onClose}>Cancel</button>
-          <button className="btn primary" disabled={saving}>{saving ? <span className="spinner" /> : "Post Goods Receipt"}</button>
+          <button className="btn primary" disabled={saving}>{saving ? <span className="spinner" /> : mode === "po" ? "Submit for approval" : "Post Goods Receipt"}</button>
         </div>
       </form>
     </div>
