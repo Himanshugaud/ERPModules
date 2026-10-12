@@ -13,12 +13,14 @@ public sealed class RequirementSheetsFunctions
     private readonly IRequirementSheetRepository _sheets;
     private readonly ITenantContext _tenant;
     private readonly IAuthorizationGuard _auth;
+    private readonly ReferenceCache _cache;
 
-    public RequirementSheetsFunctions(IRequirementSheetRepository sheets, ITenantContext tenant, IAuthorizationGuard auth)
+    public RequirementSheetsFunctions(IRequirementSheetRepository sheets, ITenantContext tenant, IAuthorizationGuard auth, ReferenceCache cache)
     {
         _sheets = sheets;
         _tenant = tenant;
         _auth = auth;
+        _cache = cache;
     }
 
     // Sheet types -> sections -> items, used to build (and export) requirement sheets in one round trip.
@@ -27,6 +29,6 @@ public sealed class RequirementSheetsFunctions
         [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "v1/requirement-sheets/catalog")] HttpRequest req, CancellationToken ct)
     {
         _auth.Require(Permissions.MaterialRequirementRead);
-        return Http.Ok(await _sheets.GetCatalogAsync(_tenant.OrganizationId, ct));
+        return Http.Ok(await _cache.GetAsync(_tenant.OrganizationId, CacheGroups.Items, "sheet-catalog", TimeSpan.FromSeconds(60), () => _sheets.GetCatalogAsync(_tenant.OrganizationId, ct)));
     }
 }

@@ -11,6 +11,7 @@ public interface IItemService
 {
     Task<ItemResponse> CreateAsync(CreateItemRequest request, CancellationToken ct = default);
     Task<PagedResult<ItemResponse>> ListAsync(ItemFilter filter, CancellationToken ct = default);
+    Task<IReadOnlyList<ItemLookupResponse>> ListLookupAsync(CancellationToken ct = default);
     Task<ItemResponse> GetAsync(Guid id, CancellationToken ct = default);
     Task<ItemResponse> UpdateAsync(Guid id, UpdateItemRequest request, CancellationToken ct = default);
     Task DeleteAsync(Guid id, CancellationToken ct = default);
@@ -38,6 +39,16 @@ public sealed class ItemService : IItemService
         _audit = audit;
         _outbox = outbox;
         _clock = clock;
+    }
+
+    public async Task<IReadOnlyList<ItemLookupResponse>> ListLookupAsync(CancellationToken ct = default)
+    {
+        var all = await _items.ListAllAsync(_tenant.OrganizationId, ct);
+        return all.Select(i => new ItemLookupResponse
+        {
+            Id = i.Id, Code = i.Code, Name = i.Name, ItemType = i.ItemType, CategoryId = i.CategoryId, BaseUomId = i.BaseUomId,
+            StandardCost = i.StandardCost, IsManufactured = i.IsManufactured, IsActive = i.IsActive
+        }).ToList();
     }
 
     public async Task<ItemResponse> CreateAsync(CreateItemRequest request, CancellationToken ct = default)

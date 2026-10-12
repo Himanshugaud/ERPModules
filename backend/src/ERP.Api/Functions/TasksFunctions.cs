@@ -165,14 +165,16 @@ public sealed class TaskLookupsFunctions
     private readonly ITaskPriorityRepository _priorities;
     private readonly ITenantContext _tenant;
     private readonly IAuthorizationGuard _auth;
+    private readonly ReferenceCache _cache;
 
     public TaskLookupsFunctions(ITaskStatusRepository statuses, ITaskPriorityRepository priorities,
-        ITenantContext tenant, IAuthorizationGuard auth)
+        ITenantContext tenant, IAuthorizationGuard auth, ReferenceCache cache)
     {
         _statuses = statuses;
         _priorities = priorities;
         _tenant = tenant;
         _auth = auth;
+        _cache = cache;
     }
 
     [Function("ListTaskStatuses")]
@@ -180,8 +182,8 @@ public sealed class TaskLookupsFunctions
         [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "v1/task-statuses")] HttpRequest req, CancellationToken ct)
     {
         _auth.Require(Permissions.TaskRead);
-        var items = await _statuses.ListAsync(_tenant.OrganizationId, ct);
-        return Http.Ok(items.Select(s => new { s.Id, s.Code, s.Name, s.DisplayOrder, s.IsFinal, s.IsActive }));
+        return Http.Ok(await _cache.GetAsync(_tenant.OrganizationId, CacheGroups.Lookups, "task-statuses", TimeSpan.FromMinutes(10), async () =>
+            (await _statuses.ListAsync(_tenant.OrganizationId, ct)).Select(s => new { s.Id, s.Code, s.Name, s.DisplayOrder, s.IsFinal, s.IsActive }).ToList()));
     }
 
     [Function("ListTaskPriorities")]
@@ -189,7 +191,7 @@ public sealed class TaskLookupsFunctions
         [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "v1/task-priorities")] HttpRequest req, CancellationToken ct)
     {
         _auth.Require(Permissions.TaskRead);
-        var items = await _priorities.ListAsync(_tenant.OrganizationId, ct);
-        return Http.Ok(items.Select(p => new { p.Id, p.Code, p.Name, p.DisplayOrder, p.IsActive }));
+        return Http.Ok(await _cache.GetAsync(_tenant.OrganizationId, CacheGroups.Lookups, "task-priorities", TimeSpan.FromMinutes(10), async () =>
+            (await _priorities.ListAsync(_tenant.OrganizationId, ct)).Select(p => new { p.Id, p.Code, p.Name, p.DisplayOrder, p.IsActive }).ToList()));
     }
 }

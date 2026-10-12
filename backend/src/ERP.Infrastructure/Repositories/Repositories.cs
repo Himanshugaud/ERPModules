@@ -23,6 +23,8 @@ public sealed class ProjectRepository : IProjectRepository
         var query = _db.Projects.AsNoTracking().Where(p => p.OrganizationId == organizationId);
 
         if (filter.StatusId.HasValue) query = query.Where(p => p.StatusId == filter.StatusId);
+        if (!string.IsNullOrWhiteSpace(filter.StatusCode))
+            query = query.Where(p => _db.ProjectStatuses.Any(s => s.Id == p.StatusId && s.Code == filter.StatusCode));
         if (filter.PriorityId.HasValue) query = query.Where(p => p.PriorityId == filter.PriorityId);
         if (filter.ManagerId.HasValue) query = query.Where(p => p.ManagerId == filter.ManagerId);
         if (filter.ClientId.HasValue) query = query.Where(p => p.ClientId == filter.ClientId);
@@ -33,8 +35,6 @@ public sealed class ProjectRepository : IProjectRepository
             var term = filter.Search.Trim();
             query = query.Where(p => EF.Functions.Like(p.Name, $"%{term}%") || EF.Functions.Like(p.Code, $"%{term}%"));
         }
-
-        var total = await query.LongCountAsync(ct);
 
         query = filter.Sort?.ToLowerInvariant() switch
         {
@@ -53,6 +53,7 @@ public sealed class ProjectRepository : IProjectRepository
         };
 
         var items = await query.Skip(filter.Skip).Take(filter.PageSize).ToListAsync(ct);
+        var total = await query.TotalAsync(filter, items.Count, ct);
 
         return new PagedResult<Project>
         {

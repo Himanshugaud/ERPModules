@@ -20,6 +20,7 @@ var host = new HostBuilder()
         services.AddHttpContextAccessor();
         services.AddScoped<ICurrentUser, CurrentUser>();
         services.AddScoped<IAuthorizationGuard, AuthorizationGuard>();
+        services.AddSingleton<ERP.Api.Common.ReferenceCache>();
 
         services.AddApplication();
         services.AddInfrastructure(context.Configuration);

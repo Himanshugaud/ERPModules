@@ -35,7 +35,6 @@ public sealed class TaskRepository : ITaskRepository
             q = q.Where(t => EF.Functions.Like(t.Title, $"%{term}%"));
         }
 
-        var total = await q.LongCountAsync(ct);
         q = filter.Sort?.ToLowerInvariant() switch
         {
             "title" => q.OrderBy(t => t.Title),
@@ -45,6 +44,7 @@ public sealed class TaskRepository : ITaskRepository
             _ => q.OrderByDescending(t => t.CreatedAt)
         };
         var items = await q.Skip(filter.Skip).Take(filter.PageSize).ToListAsync(ct);
+        var total = await q.TotalAsync(filter, items.Count, ct);
         return new PagedResult<TaskItem> { Items = items, TotalItems = total, Page = filter.Page, PageSize = filter.PageSize };
     }
 

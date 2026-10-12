@@ -60,8 +60,8 @@ public sealed class UserRepository : IUserRepository
                 || EF.Functions.Like(u.LastName!, $"%{term}%"));
         }
 
-        var total = await q.LongCountAsync(ct);
         var items = await q.OrderBy(u => u.Email).Skip(filter.Skip).Take(filter.PageSize).ToListAsync(ct);
+        var total = await q.TotalAsync(filter, items.Count, ct);
         return new PagedResult<User> { Items = items, TotalItems = total, Page = filter.Page, PageSize = filter.PageSize };
     }
 

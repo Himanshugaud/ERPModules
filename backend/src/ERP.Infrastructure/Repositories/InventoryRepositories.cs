@@ -46,8 +46,6 @@ public sealed class ItemRepository : IItemRepository
                 _db.StockLevels.Where(s => s.ItemId == i.Id).Sum(s => (decimal?)s.QtyOnHand).GetValueOrDefault() <= i.ReorderLevel);
         }
 
-        var total = await q.LongCountAsync(ct);
-
         q = filter.Sort?.ToLowerInvariant() switch
         {
             "name" => q.OrderBy(i => i.Name),
@@ -58,11 +56,15 @@ public sealed class ItemRepository : IItemRepository
         };
 
         var items = await q.Skip(filter.Skip).Take(filter.PageSize).ToListAsync(ct);
+        var total = await q.TotalAsync(filter, items.Count, ct);
         return new PagedResult<Item> { Items = items, TotalItems = total, Page = filter.Page, PageSize = filter.PageSize };
     }
 
     public Task<bool> ExistsAsync(Guid organizationId, Guid id, CancellationToken ct = default) =>
         _db.Items.AnyAsync(i => i.OrganizationId == organizationId && i.Id == id, ct);
+
+    public Task<List<Item>> ListAllAsync(Guid organizationId, CancellationToken ct = default) =>
+        _db.Items.AsNoTracking().Where(i => i.OrganizationId == organizationId).OrderBy(i => i.Name).ToListAsync(ct);
 
     public Task<bool> CodeExistsAsync(Guid organizationId, string code, Guid? excludeId, CancellationToken ct = default) =>
         _db.Items.IgnoreQueryFilters()
@@ -151,8 +153,8 @@ public sealed class SupplierRepository : ISupplierRepository
             var term = filter.Search.Trim();
             q = q.Where(s => EF.Functions.Like(s.Name, $"%{term}%") || EF.Functions.Like(s.Code, $"%{term}%"));
         }
-        var total = await q.LongCountAsync(ct);
         var items = await q.OrderBy(s => s.Name).Skip(filter.Skip).Take(filter.PageSize).ToListAsync(ct);
+        var total = await q.TotalAsync(filter, items.Count, ct);
         return new PagedResult<Supplier> { Items = items, TotalItems = total, Page = filter.Page, PageSize = filter.PageSize };
     }
 
@@ -203,8 +205,8 @@ public sealed class StockLevelRepository : IStockLevelRepository
         {
             q = q.Where(s => _db.Items.Any(i => i.Id == s.ItemId && i.ReorderLevel != null && s.QtyOnHand <= i.ReorderLevel));
         }
-        var total = await q.LongCountAsync(ct);
         var items = await q.OrderByDescending(s => s.QtyOnHand).Skip(filter.Skip).Take(filter.PageSize).ToListAsync(ct);
+        var total = await q.TotalAsync(filter, items.Count, ct);
         return new PagedResult<StockLevel> { Items = items, TotalItems = total, Page = filter.Page, PageSize = filter.PageSize };
     }
 
@@ -226,8 +228,8 @@ public sealed class StockMovementRepository : IStockMovementRepository
         if (filter.DateFrom.HasValue) q = q.Where(m => m.OccurredAt >= filter.DateFrom.Value.ToDateTime(TimeOnly.MinValue));
         if (filter.DateTo.HasValue) q = q.Where(m => m.OccurredAt <= filter.DateTo.Value.ToDateTime(TimeOnly.MaxValue));
 
-        var total = await q.LongCountAsync(ct);
         var items = await q.OrderByDescending(m => m.OccurredAt).Skip(filter.Skip).Take(filter.PageSize).ToListAsync(ct);
+        var total = await q.TotalAsync(filter, items.Count, ct);
         return new PagedResult<StockMovement> { Items = items, TotalItems = total, Page = filter.Page, PageSize = filter.PageSize };
     }
 
@@ -248,8 +250,8 @@ public sealed class GoodsReceiptRepository : IGoodsReceiptRepository
         var q = _db.GoodsReceipts.AsNoTracking().Where(g => g.OrganizationId == organizationId);
         if (filter.WarehouseId.HasValue) q = q.Where(g => g.WarehouseId == filter.WarehouseId);
         if (filter.SupplierId.HasValue) q = q.Where(g => g.SupplierId == filter.SupplierId);
-        var total = await q.LongCountAsync(ct);
         var items = await q.OrderByDescending(g => g.CreatedAt).Skip(filter.Skip).Take(filter.PageSize).ToListAsync(ct);
+        var total = await q.TotalAsync(filter, items.Count, ct);
         return new PagedResult<GoodsReceipt> { Items = items, TotalItems = total, Page = filter.Page, PageSize = filter.PageSize };
     }
 
@@ -301,8 +303,8 @@ public sealed class StockTransferRepository : IStockTransferRepository
         if (filter.WarehouseId.HasValue) q = q.Where(t => t.FromWarehouseId == filter.WarehouseId || t.ToWarehouseId == filter.WarehouseId);
         if (filter.ProjectId.HasValue) q = q.Where(t => t.ProjectId == filter.ProjectId);
         if (filter.MaterialRequirementId.HasValue) q = q.Where(t => t.MaterialRequirementId == filter.MaterialRequirementId);
-        var total = await q.LongCountAsync(ct);
         var items = await q.OrderByDescending(t => t.CreatedAt).Skip(filter.Skip).Take(filter.PageSize).ToListAsync(ct);
+        var total = await q.TotalAsync(filter, items.Count, ct);
         return new PagedResult<StockTransfer> { Items = items, TotalItems = total, Page = filter.Page, PageSize = filter.PageSize };
     }
 
@@ -325,8 +327,8 @@ public sealed class StockAdjustmentRepository : IStockAdjustmentRepository
     {
         var q = _db.StockAdjustments.AsNoTracking().Where(a => a.OrganizationId == organizationId);
         if (filter.WarehouseId.HasValue) q = q.Where(a => a.WarehouseId == filter.WarehouseId);
-        var total = await q.LongCountAsync(ct);
         var items = await q.OrderByDescending(a => a.CreatedAt).Skip(filter.Skip).Take(filter.PageSize).ToListAsync(ct);
+        var total = await q.TotalAsync(filter, items.Count, ct);
         return new PagedResult<StockAdjustment> { Items = items, TotalItems = total, Page = filter.Page, PageSize = filter.PageSize };
     }
 
@@ -356,8 +358,8 @@ public sealed class BomRepository : IBomRepository
             var term = filter.Search.Trim();
             q = q.Where(b => EF.Functions.Like(b.Code, $"%{term}%"));
         }
-        var total = await q.LongCountAsync(ct);
         var items = await q.OrderByDescending(b => b.CreatedAt).Skip(filter.Skip).Take(filter.PageSize).ToListAsync(ct);
+        var total = await q.TotalAsync(filter, items.Count, ct);
         return new PagedResult<BillOfMaterials> { Items = items, TotalItems = total, Page = filter.Page, PageSize = filter.PageSize };
     }
 
@@ -385,8 +387,8 @@ public sealed class WorkOrderRepository : IWorkOrderRepository
         if (filter.ProjectId.HasValue) q = q.Where(w => w.ProjectId == filter.ProjectId);
         if (filter.WarehouseId.HasValue) q = q.Where(w => w.WarehouseId == filter.WarehouseId);
         if (filter.MaterialRequirementId.HasValue) q = q.Where(w => w.MaterialRequirementId == filter.MaterialRequirementId);
-        var total = await q.LongCountAsync(ct);
         var items = await q.OrderByDescending(w => w.CreatedAt).Skip(filter.Skip).Take(filter.PageSize).ToListAsync(ct);
+        var total = await q.TotalAsync(filter, items.Count, ct);
         return new PagedResult<WorkOrder> { Items = items, TotalItems = total, Page = filter.Page, PageSize = filter.PageSize };
     }
 

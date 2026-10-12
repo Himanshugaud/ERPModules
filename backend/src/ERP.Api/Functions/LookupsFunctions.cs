@@ -16,6 +16,7 @@ public sealed class LookupsFunctions
     private readonly IDepartmentRepository _departments;
     private readonly ITenantContext _tenant;
     private readonly IAuthorizationGuard _auth;
+    private readonly ReferenceCache _cache;
 
     public LookupsFunctions(
         IProjectStatusRepository statuses,
@@ -23,7 +24,8 @@ public sealed class LookupsFunctions
         IClientRepository clients,
         IDepartmentRepository departments,
         ITenantContext tenant,
-        IAuthorizationGuard auth)
+        IAuthorizationGuard auth,
+        ReferenceCache cache)
     {
         _statuses = statuses;
         _priorities = priorities;
@@ -31,6 +33,7 @@ public sealed class LookupsFunctions
         _departments = departments;
         _tenant = tenant;
         _auth = auth;
+        _cache = cache;
     }
 
     [Function("ListProjectStatuses")]
@@ -39,8 +42,9 @@ public sealed class LookupsFunctions
         CancellationToken ct)
     {
         _auth.Require(Permissions.ProjectRead);
-        var items = await _statuses.ListAsync(_tenant.OrganizationId, ct);
-        return Http.Ok(items.Select(s => new { s.Id, s.Code, s.Name, s.DisplayOrder, s.IsDefault, s.IsFinal, s.IsActive }));
+        return Http.Ok(await _cache.GetAsync(_tenant.OrganizationId, CacheGroups.Lookups, "project-statuses", TimeSpan.FromMinutes(10), async () =>
+            (await _statuses.ListAsync(_tenant.OrganizationId, ct))
+                .Select(s => new { s.Id, s.Code, s.Name, s.DisplayOrder, s.IsDefault, s.IsFinal, s.IsActive }).ToList()));
     }
 
     [Function("ListProjectPriorities")]
@@ -49,8 +53,9 @@ public sealed class LookupsFunctions
         CancellationToken ct)
     {
         _auth.Require(Permissions.ProjectRead);
-        var items = await _priorities.ListAsync(_tenant.OrganizationId, ct);
-        return Http.Ok(items.Select(p => new { p.Id, p.Code, p.Name, p.DisplayOrder, p.IsActive }));
+        return Http.Ok(await _cache.GetAsync(_tenant.OrganizationId, CacheGroups.Lookups, "project-priorities", TimeSpan.FromMinutes(10), async () =>
+            (await _priorities.ListAsync(_tenant.OrganizationId, ct))
+                .Select(p => new { p.Id, p.Code, p.Name, p.DisplayOrder, p.IsActive }).ToList()));
     }
 
     [Function("ListDepartments")]
@@ -59,8 +64,8 @@ public sealed class LookupsFunctions
         CancellationToken ct)
     {
         _auth.RequireAuthenticated();
-        var items = await _departments.ListAsync(_tenant.OrganizationId, ct);
-        return Http.Ok(items.Select(d => new { d.Id, d.Code, d.Name }));
+        return Http.Ok(await _cache.GetAsync(_tenant.OrganizationId, CacheGroups.Lookups, "departments", TimeSpan.FromMinutes(10), async () =>
+            (await _departments.ListAsync(_tenant.OrganizationId, ct)).Select(d => new { d.Id, d.Code, d.Name }).ToList()));
     }
 }
 

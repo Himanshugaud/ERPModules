@@ -76,6 +76,20 @@ public sealed class ItemResponse
     public string RowVersion { get; set; } = default!;
 }
 
+/// <summary>Slim item used by dropdowns and name lookups across the UI.</summary>
+public sealed class ItemLookupResponse
+{
+    public Guid Id { get; set; }
+    public string Code { get; set; } = default!;
+    public string Name { get; set; } = default!;
+    public string ItemType { get; set; } = default!;
+    public Guid? CategoryId { get; set; }
+    public Guid? BaseUomId { get; set; }
+    public decimal? StandardCost { get; set; }
+    public bool IsManufactured { get; set; }
+    public bool IsActive { get; set; }
+}
+
 // ---- Warehouses ----
 public sealed class CreateWarehouseRequest
 {

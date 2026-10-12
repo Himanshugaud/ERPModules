@@ -27,8 +27,8 @@ public sealed class MaterialRequirementRepository : IMaterialRequirementReposito
         if (!string.IsNullOrWhiteSpace(filter.Priority)) q = q.Where(r => r.Priority == filter.Priority);
         if (!filter.IncludeDrafts && filter.Status != MaterialRequirementStatuses.Draft) q = q.Where(r => r.Status != MaterialRequirementStatuses.Draft);
 
-        var total = await q.LongCountAsync(ct);
         var items = await q.OrderByDescending(r => r.CreatedAt).Skip(filter.Skip).Take(filter.PageSize).ToListAsync(ct);
+        var total = await q.TotalAsync(filter, items.Count, ct);
         return new PagedResult<MaterialRequirement> { Items = items, TotalItems = total, Page = filter.Page, PageSize = filter.PageSize };
     }
 
@@ -61,8 +61,8 @@ public sealed class PurchaseOrderRepository : IPurchaseOrderRepository
         if (filter.ProjectId.HasValue) q = q.Where(o => o.ProjectId == filter.ProjectId);
         if (!string.IsNullOrWhiteSpace(filter.Status)) q = q.Where(o => o.Status == filter.Status);
 
-        var total = await q.LongCountAsync(ct);
         var items = await q.OrderByDescending(o => o.CreatedAt).Skip(filter.Skip).Take(filter.PageSize).ToListAsync(ct);
+        var total = await q.TotalAsync(filter, items.Count, ct);
         return new PagedResult<PurchaseOrder> { Items = items, TotalItems = total, Page = filter.Page, PageSize = filter.PageSize };
     }
 

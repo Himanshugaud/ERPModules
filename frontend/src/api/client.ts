@@ -570,15 +570,14 @@ export const api = {
   items: (params: Record<string, string | number | boolean | undefined> = {}) =>
     request<Paged<InventoryItem>>(`/items?${qstr(params)}`),
   item: (id: string) => request<{ data: InventoryItem }>(`/items/${id}`).then((r) => r.data),
-  /** Every item (the API caps a page at 100), cached for the session. */
+  /** Every item in one request (cached for the session); fields not needed for lookups are defaulted. */
   allItems: () =>
     cached("allItems", async () => {
-      const data: InventoryItem[] = [];
-      for (let page = 1; page <= 30; page++) {
-        const res = await request<Paged<InventoryItem>>(`/items?${qstr({ page, pageSize: 100 })}`);
-        data.push(...res.data);
-        if (res.data.length < 100) break;
-      }
+      const res = await request<{ data: Pick<InventoryItem, "id" | "code" | "name" | "itemType" | "categoryId" | "baseUomId" | "standardCost" | "isManufactured" | "isActive">[] }>("/items/lookup");
+      const data = res.data.map((i) => ({
+        trackBatches: false, trackSerials: false, trackExpiry: false, isPurchasable: !i.isManufactured, isSellable: false, createdAt: "", rowVersion: "",
+        ...i
+      })) as InventoryItem[];
       return { data };
     }),
   createItem: (payload: Record<string, unknown>) =>

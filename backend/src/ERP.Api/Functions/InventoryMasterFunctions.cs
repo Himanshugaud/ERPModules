@@ -16,14 +16,28 @@ public sealed class ItemsFunctions
     private readonly IAuthorizationGuard _auth;
     private readonly IValidator<CreateItemRequest> _createValidator;
     private readonly IValidator<UpdateItemRequest> _updateValidator;
+    private readonly ReferenceCache _cache;
+    private readonly ITenantContext _tenant;
 
     public ItemsFunctions(IItemService service, IAuthorizationGuard auth,
-        IValidator<CreateItemRequest> createValidator, IValidator<UpdateItemRequest> updateValidator)
+        IValidator<CreateItemRequest> createValidator, IValidator<UpdateItemRequest> updateValidator,
+        ReferenceCache cache, ITenantContext tenant)
     {
         _service = service;
         _auth = auth;
         _createValidator = createValidator;
         _updateValidator = updateValidator;
+        _cache = cache;
+        _tenant = tenant;
+    }
+
+    // One query, no paging: lets screens resolve item names without walking every page.
+    [Function("ListItemLookup")]
+    public async Task<IActionResult> Lookup(
+        [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "v1/items/lookup")] HttpRequest req, CancellationToken ct)
+    {
+        _auth.Require(Permissions.ItemRead);
+        return Http.Ok(await _cache.GetAsync(_tenant.OrganizationId, CacheGroups.Items, "lookup", TimeSpan.FromSeconds(60), () => _service.ListLookupAsync(ct)));
     }
 
     [Function("CreateItem")]
@@ -32,7 +46,9 @@ public sealed class ItemsFunctions
     {
         _auth.Require(Permissions.ItemCreate);
         var body = await Http.ReadValidatedAsync(req, _createValidator, ct);
-        return Http.Created(await _service.CreateAsync(body, ct));
+        var created = await _service.CreateAsync(body, ct);
+        _cache.Invalidate(_tenant.OrganizationId, CacheGroups.Items);
+        return Http.Created(created);
     }
 
     [Function("ListItems")]
@@ -68,7 +84,9 @@ public sealed class ItemsFunctions
     {
         _auth.Require(Permissions.ItemUpdate);
         var body = await Http.ReadValidatedAsync(req, _updateValidator, ct);
-        return Http.Ok(await _service.UpdateAsync(id, body, ct));
+        var updated = await _service.UpdateAsync(id, body, ct);
+        _cache.Invalidate(_tenant.OrganizationId, CacheGroups.Items);
+        return Http.Ok(updated);
     }
 
     [Function("DeleteItem")]
@@ -77,6 +95,7 @@ public sealed class ItemsFunctions
     {
         _auth.Require(Permissions.ItemDelete);
         await _service.DeleteAsync(id, ct);
+        _cache.Invalidate(_tenant.OrganizationId, CacheGroups.Items);
         return Http.NoContent();
     }
 }
@@ -87,14 +106,19 @@ public sealed class WarehousesFunctions
     private readonly IAuthorizationGuard _auth;
     private readonly IValidator<CreateWarehouseRequest> _createValidator;
     private readonly IValidator<UpdateWarehouseRequest> _updateValidator;
+    private readonly ReferenceCache _cache;
+    private readonly ITenantContext _tenant;
 
     public WarehousesFunctions(IWarehouseService service, IAuthorizationGuard auth,
-        IValidator<CreateWarehouseRequest> createValidator, IValidator<UpdateWarehouseRequest> updateValidator)
+        IValidator<CreateWarehouseRequest> createValidator, IValidator<UpdateWarehouseRequest> updateValidator,
+        ReferenceCache cache, ITenantContext tenant)
     {
         _service = service;
         _auth = auth;
         _createValidator = createValidator;
         _updateValidator = updateValidator;
+        _cache = cache;
+        _tenant = tenant;
     }
 
     [Function("CreateWarehouse")]
@@ -103,7 +127,9 @@ public sealed class WarehousesFunctions
     {
         _auth.Require(Permissions.WarehouseCreate);
         var body = await Http.ReadValidatedAsync(req, _createValidator, ct);
-        return Http.Created(await _service.CreateAsync(body, ct));
+        var created = await _service.CreateAsync(body, ct);
+        _cache.Invalidate(_tenant.OrganizationId, CacheGroups.Warehouses);
+        return Http.Created(created);
     }
 
     [Function("ListWarehouses")]
@@ -111,7 +137,7 @@ public sealed class WarehousesFunctions
         [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "v1/warehouses")] HttpRequest req, CancellationToken ct)
     {
         _auth.Require(Permissions.WarehouseRead);
-        return Http.Ok(await _service.ListAsync(ct));
+        return Http.Ok(await _cache.GetAsync(_tenant.OrganizationId, CacheGroups.Warehouses, "list", TimeSpan.FromMinutes(5), () => _service.ListAsync(ct)));
     }
 
     [Function("GetWarehouse")]
@@ -128,7 +154,9 @@ public sealed class WarehousesFunctions
     {
         _auth.Require(Permissions.WarehouseUpdate);
         var body = await Http.ReadValidatedAsync(req, _updateValidator, ct);
-        return Http.Ok(await _service.UpdateAsync(id, body, ct));
+        var updated = await _service.UpdateAsync(id, body, ct);
+        _cache.Invalidate(_tenant.OrganizationId, CacheGroups.Warehouses);
+        return Http.Ok(updated);
     }
 }
 
@@ -195,13 +223,17 @@ public sealed class InventoryLookupFunctions
     private readonly IInventoryLookupService _service;
     private readonly IAuthorizationGuard _auth;
     private readonly IValidator<CreateItemCategoryRequest> _createCategoryValidator;
+    private readonly ReferenceCache _cache;
+    private readonly ITenantContext _tenant;
 
     public InventoryLookupFunctions(IInventoryLookupService service, IAuthorizationGuard auth,
-        IValidator<CreateItemCategoryRequest> createCategoryValidator)
+        IValidator<CreateItemCategoryRequest> createCategoryValidator, ReferenceCache cache, ITenantContext tenant)
     {
         _service = service;
         _auth = auth;
         _createCategoryValidator = createCategoryValidator;
+        _cache = cache;
+        _tenant = tenant;
     }
 
     [Function("ListItemCategories")]
@@ -209,7 +241,7 @@ public sealed class InventoryLookupFunctions
         [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "v1/item-categories")] HttpRequest req, CancellationToken ct)
     {
         _auth.Require(Permissions.ItemRead);
-        return Http.Ok(await _service.ListCategoriesAsync(ct));
+        return Http.Ok(await _cache.GetAsync(_tenant.OrganizationId, CacheGroups.Items, "categories", TimeSpan.FromSeconds(60), () => _service.ListCategoriesAsync(ct)));
     }
 
     [Function("CreateItemCategory")]
@@ -218,7 +250,9 @@ public sealed class InventoryLookupFunctions
     {
         _auth.Require(Permissions.ItemCreate);
         var body = await Http.ReadValidatedAsync(req, _createCategoryValidator, ct);
-        return Http.Created(await _service.CreateCategoryAsync(body, ct));
+        var created = await _service.CreateCategoryAsync(body, ct);
+        _cache.Invalidate(_tenant.OrganizationId, CacheGroups.Items);
+        return Http.Created(created);
     }
 
     [Function("ListUnitsOfMeasure")]
@@ -226,6 +260,6 @@ public sealed class InventoryLookupFunctions
         [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "v1/units-of-measure")] HttpRequest req, CancellationToken ct)
     {
         _auth.Require(Permissions.ItemRead);
-        return Http.Ok(await _service.ListUomsAsync(ct));
+        return Http.Ok(await _cache.GetAsync(_tenant.OrganizationId, CacheGroups.Lookups, "uoms", TimeSpan.FromMinutes(10), () => _service.ListUomsAsync(ct)));
     }
 }

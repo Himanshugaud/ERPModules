@@ -62,6 +62,8 @@ public interface IItemRepository
 {
     Task<Item?> GetByIdAsync(Guid organizationId, Guid id, bool track, CancellationToken ct = default);
     Task<PagedResult<Item>> ListAsync(Guid organizationId, ItemFilter filter, CancellationToken ct = default);
+    /// <summary>Every non-deleted item in one query (no count), for client-side lookups.</summary>
+    Task<List<Item>> ListAllAsync(Guid organizationId, CancellationToken ct = default);
     Task<bool> ExistsAsync(Guid organizationId, Guid id, CancellationToken ct = default);
     Task<bool> CodeExistsAsync(Guid organizationId, string code, Guid? excludeId, CancellationToken ct = default);
     Task AddAsync(Item item, CancellationToken ct = default);

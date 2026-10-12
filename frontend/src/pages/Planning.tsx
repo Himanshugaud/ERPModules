@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, ApiError, type Project, type Lookup, type Warehouse, type InventoryItem, type MaterialRequirement, type ProjectPlan, type SheetCatalogType, type UserItem } from "../api/client";
 import AttachmentsPanel from "../components/AttachmentsPanel";
@@ -22,13 +22,11 @@ export default function Planning() {
   const [showAll, setShowAll] = useState(false);
   const [selected, setSelected] = useState<Project | null>(null);
 
-  const planningStatusId = useMemo(() => statuses.find((s) => s.code === "PLANNING")?.id, [statuses]);
-
   async function load() {
     setLoading(true);
     setError(null);
     try {
-      const res = await api.projects({ statusId: showAll ? undefined : planningStatusId, pageSize: 100 });
+      const res = await api.projects({ statusCode: showAll ? undefined : "PLANNING", pageSize: 100 });
       setProjects(res.data);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Unable to load projects.");
@@ -40,12 +38,16 @@ export default function Planning() {
   useEffect(() => {
     api.projectStatuses().then(setStatuses).catch(() => setStatuses([]));
     api.warehouses().then(setWarehouses).catch(() => setWarehouses([]));
-    api.allItems().then((r) => setItems(r.data)).catch(() => setItems([]));
     api.uoms().then(setUoms).catch(() => setUoms([]));
   }, []);
 
-  // Re-run once statuses have loaded (so the default PLANNING filter is applied) and whenever the toggle changes.
-  useEffect(() => { load(); }, [planningStatusId, showAll]);
+  // The item list is only needed inside the workspace, so fetch it when one is opened.
+  useEffect(() => {
+    if (selected && items.length === 0) api.allItems().then((r) => setItems(r.data)).catch(() => setItems([]));
+    // eslint-disable-next-line
+  }, [selected]);
+
+  useEffect(() => { load(); }, [showAll]);
 
   const statusMap = Object.fromEntries(statuses.map((s) => [s.id, s]));
 

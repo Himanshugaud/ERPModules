@@ -17,11 +17,17 @@ public sealed class RequirementSheetRepository : IRequirementSheetRepository
         if (types.Count == 0) return new List<SheetCatalogType>();
 
         var typeIds = types.Select(t => t.Id).ToList();
-        var sections = await _db.RequirementSheetSections.AsNoTracking()
-            .Where(s => typeIds.Contains(s.SheetTypeId) && s.IsActive).OrderBy(s => s.DisplayOrder).ToListAsync(ct);
+        // Category-fed sheet types need neither sections nor mappings, so skip those two queries when possible.
+        var needsLegacy = types.Any(t => !t.CategoryId.HasValue);
+        var sections = needsLegacy
+            ? await _db.RequirementSheetSections.AsNoTracking()
+                .Where(s => typeIds.Contains(s.SheetTypeId) && s.IsActive).OrderBy(s => s.DisplayOrder).ToListAsync(ct)
+            : new List<RequirementSheetSection>();
         var sectionIds = sections.Select(s => s.Id).ToList();
-        var mappings = await _db.RequirementSheetSectionItems.AsNoTracking()
-            .Where(m => sectionIds.Contains(m.SectionId)).OrderBy(m => m.DisplayOrder).ToListAsync(ct);
+        var mappings = needsLegacy
+            ? await _db.RequirementSheetSectionItems.AsNoTracking()
+                .Where(m => sectionIds.Contains(m.SectionId)).OrderBy(m => m.DisplayOrder).ToListAsync(ct)
+            : new List<RequirementSheetSectionItem>();
 
         // The universal item list: every active item, so sheets always reflect what Inventory maintains.
         var items = await _db.Items.AsNoTracking()

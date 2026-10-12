@@ -6,6 +6,8 @@ namespace ERP.Application.Abstractions;
 public sealed class ProjectFilter : PageRequest
 {
     public Guid? StatusId { get; set; }
+    /// <summary>Status code (e.g. PLANNING), so callers need not look the status id up first.</summary>
+    public string? StatusCode { get; set; }
     public Guid? PriorityId { get; set; }
     public Guid? ManagerId { get; set; }
     public Guid? ClientId { get; set; }

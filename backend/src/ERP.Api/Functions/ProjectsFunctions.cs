@@ -52,6 +52,7 @@ public sealed class ProjectsFunctions
             PageSize = Http.IntQuery(req, "pageSize") ?? 25,
             Sort = Http.StringQuery(req, "sort"),
             StatusId = Http.GuidQuery(req, "statusId"),
+            StatusCode = Http.StringQuery(req, "statusCode"),
             PriorityId = Http.GuidQuery(req, "priorityId"),
             ManagerId = Http.GuidQuery(req, "managerId"),
             ClientId = Http.GuidQuery(req, "clientId"),
