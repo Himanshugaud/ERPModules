@@ -212,6 +212,7 @@ tbody tr.clickable:hover { background: #f5f7fa; }
 /* Project list filter bar */
 .filter-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 12px 0; }
 .filter-bar select { border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px; font-size: 13px; background: var(--surface); color: var(--text); }
+.filter-bar .filter-search { width: min(280px, 100%); border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px; font-size: 13px; background: var(--surface); color: var(--text); }
 .filter-date { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-subtle, #5b6472); }
 .filter-date input { border: 1px solid var(--border); border-radius: 8px; padding: 6px 8px; font-size: 13px; background: var(--surface); color: var(--text); }
 

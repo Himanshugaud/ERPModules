@@ -6,8 +6,8 @@ import { ApiError } from "../api/client";
 export default function Login() {
   const { login } = useAuth();
   const navigate = useNavigate();
-  const [organizationCode, setOrg] = useState("TYE");
-  const [email, setEmail] = useState("ceo@tye.local");
+  const [organizationCode, setOrg] = useState("");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -43,11 +43,11 @@ export default function Login() {
 
         <div className="field">
           <label>Organization Code</label>
-          <input value={organizationCode} onChange={(e) => setOrg(e.target.value)} placeholder="DEMO" required />
+          <input value={organizationCode} onChange={(e) => setOrg(e.target.value)} placeholder="e.g. TYE" required />
         </div>
         <div className="field">
           <label>Email or Username</label>
-          <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@company.com or username" required />
+          <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="e.g. name@company.com" required />
         </div>
         <div className="field">
           <label>Password</label>

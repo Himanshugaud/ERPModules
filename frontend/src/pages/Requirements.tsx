@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
-import { api, ApiError, type Lookup, type Client } from "../api/client";
+import { api, ApiError, type Lookup, type Client, type Project } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import AttachmentsPanel, { uploadableCategories } from "../components/AttachmentsPanel";
 import RequirementFiles from "../components/RequirementFiles";
@@ -35,6 +35,9 @@ interface Requirement {
   targetDate: string;
   status: "NEW" | "CONVERTED";
   projectId?: string;
+  projectStatusCode?: string;
+  projectStatusName?: string;
+  isProjectRecord?: boolean;
   createdAt: string;
 }
 
@@ -53,11 +56,64 @@ function saveReqs(orgId: string | undefined, reqs: Requirement[]) {
   localStorage.setItem(storageKey(orgId), JSON.stringify(reqs));
 }
 
+function mergeProjectRequirements(reqs: Requirement[], projects: Project[], statuses: Lookup[], priorities: Lookup[], clients: Client[]): Requirement[] {
+  const projectById = new Map(projects.map((project) => [project.id, project]));
+  const statusById = new Map(statuses.map((status) => [status.id, status]));
+  const priorityById = new Map(priorities.map((priority) => [priority.id, priority]));
+  const clientById = new Map(clients.map((client) => [client.id, client]));
+  const localRows = reqs.map((requirement) => {
+    const project = requirement.projectId ? projectById.get(requirement.projectId) : undefined;
+    const projectStatus = project?.statusId ? statusById.get(project.statusId) : undefined;
+    return project ? {
+      ...requirement,
+      projectStatusCode: projectStatus?.code,
+      projectStatusName: projectStatus?.name
+    } : requirement;
+  });
+  const localProjectIds = new Set(reqs.map((requirement) => requirement.projectId).filter(Boolean));
+  const savedProjects = projects.filter((project) => !localProjectIds.has(project.id)).map((project) => {
+    const projectStatus = project.statusId ? statusById.get(project.statusId) : undefined;
+    const priority = project.priorityId ? priorityById.get(project.priorityId) : undefined;
+    const client = project.clientId ? clientById.get(project.clientId) : undefined;
+    return {
+      id: project.id,
+      title: project.name,
+      clientId: project.clientId ?? "",
+      clientName: client?.name ?? "",
+      description: project.description ?? "",
+      priority: priority?.code ?? priority?.name ?? "—",
+      budget: project.budget == null ? "" : String(project.budget),
+      targetDate: project.plannedEndDate ?? "",
+      status: "CONVERTED" as const,
+      projectId: project.id,
+      projectStatusCode: projectStatus?.code,
+      projectStatusName: projectStatus?.name,
+      isProjectRecord: true,
+      createdAt: project.createdAt
+    };
+  });
+  return [...localRows, ...savedProjects].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
+function filterRequirements(rows: Requirement[], search: string, clientId: string, priority: string, status: string): Requirement[] {
+  const query = search.trim().toLocaleLowerCase();
+  return rows.filter((row) => {
+    if (query && ![row.title, row.description, row.clientName].some((value) => value.toLocaleLowerCase().includes(query))) return false;
+    if (clientId && row.clientId !== clientId) return false;
+    if (priority && row.priority !== priority) return false;
+    if (status === "NEW" && row.status !== "NEW") return false;
+    if (status === "CONVERTED" && row.status !== "CONVERTED") return false;
+    if (status.startsWith("PROJECT:") && (row.status !== "CONVERTED" || row.projectStatusCode !== status.slice(8))) return false;
+    return true;
+  });
+}
+
 export default function Requirements() {
   const { user } = useAuth();
   const orgId = user?.organizationId;
   const navigate = useNavigate();
   const [reqs, setReqs] = useState<Requirement[]>(() => loadReqs(orgId));
+  const [projects, setProjects] = useState<Project[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
   const [statuses, setStatuses] = useState<Lookup[]>([]);
   const [priorities, setPriorities] = useState<Lookup[]>([]);
@@ -65,18 +121,42 @@ export default function Requirements() {
   const [editReq, setEditReq] = useState<Requirement | null>(null);
   const [convertReq, setConvert] = useState<Requirement | null>(null);
   const [documentReq, setDocumentReq] = useState<Requirement | null>(null);
+  const [search, setSearch] = useState("");
+  const [clientFilter, setClientFilter] = useState("");
+  const [priorityFilter, setPriorityFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
+  const canReadProjects = user?.permissions.includes("project.read") ?? false;
 
   useEffect(() => {
     api.clients().then(setClients).catch(() => setClients([]));
     api.projectStatuses().then(setStatuses).catch(() => setStatuses([]));
     api.projectPriorities().then(setPriorities).catch(() => setPriorities([]));
-  }, []);
+    if (!canReadProjects) {
+      setProjects([]);
+      return;
+    }
+    api.projects({ page: 1, pageSize: 100 }).then(async (first) => {
+      const remainingPages = Array.from({ length: Math.max(0, first.pagination.totalPages - 1) }, (_, index) => index + 2);
+      const rest = await Promise.all(remainingPages.map((page) => api.projects({ page, pageSize: 100 })));
+      setProjects([...first.data, ...rest.flatMap((result) => result.data)]);
+    }).catch(() => setProjects([]));
+  }, [canReadProjects]);
 
   useEffect(() => { setReqs(loadReqs(orgId)); }, [orgId]);
 
   function persist(next: Requirement[]) {
     setReqs(next);
     saveReqs(orgId, next);
+  }
+
+  const rows = mergeProjectRequirements(reqs, projects, statuses, priorities, clients);
+  const filteredRows = filterRequirements(rows, search, clientFilter, priorityFilter, statusFilter);
+  const hasFilters = Boolean(search || clientFilter || priorityFilter || statusFilter);
+  function clearFilters() {
+    setSearch("");
+    setClientFilter("");
+    setPriorityFilter("");
+    setStatusFilter("");
   }
 
   return (
@@ -91,16 +171,36 @@ export default function Requirements() {
         </div>
       </div>
 
+      <div className="filter-bar">
+        <input className="filter-search" type="search" aria-label="Search requirements" placeholder="Search requirements…" value={search} onChange={(event) => setSearch(event.target.value)} />
+        <select aria-label="Filter requirements by client" value={clientFilter} onChange={(event) => setClientFilter(event.target.value)}>
+          <option value="">All Clients</option>
+          {clients.map((client) => <option key={client.id} value={client.id}>{client.name}</option>)}
+        </select>
+        <select aria-label="Filter requirements by priority" value={priorityFilter} onChange={(event) => setPriorityFilter(event.target.value)}>
+          <option value="">All Priorities</option>
+          {priorities.map((priority) => <option key={priority.id} value={priority.code}>{priority.name}</option>)}
+        </select>
+        <select aria-label="Filter requirements by status" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
+          <option value="">All Statuses</option>
+          <option value="NEW">New</option>
+          <option value="CONVERTED">Converted</option>
+          {statuses.map((status) => <option key={status.id} value={`PROJECT:${status.code}`}>{status.name}</option>)}
+        </select>
+        {hasFilters && <button type="button" className="btn btn-sm" onClick={clearFilters}>Clear filters</button>}
+        <span className="muted" aria-live="polite">Showing {filteredRows.length} of {rows.length}</span>
+      </div>
+
       <div className="table-wrap">
         <table>
           <thead>
             <tr><th>Requirement</th><th>Client</th><th>Priority</th><th>Target Date</th><th>Status</th><th></th></tr>
           </thead>
           <tbody>
-            {reqs.length === 0 ? (
-              <tr><td colSpan={6}><div className="empty">No requirements yet. Capture your first client requirement.</div></td></tr>
+            {filteredRows.length === 0 ? (
+              <tr><td colSpan={6}><div className="empty">{rows.length === 0 ? "No requirements yet. Capture your first client requirement." : "No requirements match these filters."}</div></td></tr>
             ) : (
-              reqs.map((r) => (
+              filteredRows.map((r) => (
                 <tr key={r.id}>
                   <td>
                     <div className="cell-title">{r.title}</div>
@@ -109,7 +209,7 @@ export default function Requirements() {
                   <td>{r.clientName || "—"}</td>
                   <td>{r.priority}</td>
                   <td>{formatDate(r.targetDate)}</td>
-                  <td><span className={`badge ${r.status === "CONVERTED" ? "green" : "blue"}`}>{r.status === "CONVERTED" ? "Converted" : "New"}</span></td>
+                  <td><span className={`badge ${r.status === "CONVERTED" ? "green" : "blue"}`}>{r.projectStatusName ?? (r.status === "CONVERTED" ? "Converted" : "New")}</span></td>
                   <td>
                     <div className="row-actions">
                       {r.status === "CONVERTED" && r.projectId ? (
@@ -123,10 +223,12 @@ export default function Requirements() {
                           <button className="btn btn-sm primary" onClick={() => setConvert(r)}>Convert →</button>
                         </>
                       )}
-                      <button className="btn btn-sm danger" onClick={() => {
-                        if (r.status !== "CONVERTED") discardDraftFiles(r.id);
-                        persist(reqs.filter((x) => x.id !== r.id));
-                      }}>Delete</button>
+                      {!r.isProjectRecord && (
+                        <button className="btn btn-sm danger" onClick={() => {
+                          if (r.status !== "CONVERTED") discardDraftFiles(r.id);
+                          persist(reqs.filter((x) => x.id !== r.id));
+                        }}>Delete</button>
+                      )}
                     </div>
                   </td>
                 </tr>

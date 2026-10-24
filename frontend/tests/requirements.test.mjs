@@ -10,6 +10,14 @@ const declaration = parsed.statements.find((statement) => ts.isFunctionDeclarati
 assert.ok(declaration, "Requirement conversion must define its initial status selector.");
 const compiled = ts.transpileModule(declaration.getText(parsed), { compilerOptions: { target: ts.ScriptTarget.ES2022 } });
 const pickStatusId = runInNewContext(`${compiled.outputText}\npickStatusId;`);
+const mergeDeclaration = parsed.statements.find((statement) => ts.isFunctionDeclaration(statement) && statement.name?.text === "mergeProjectRequirements");
+assert.ok(mergeDeclaration, "Requirements must merge backend projects with saved drafts.");
+const mergeCompiled = ts.transpileModule(mergeDeclaration.getText(parsed), { compilerOptions: { target: ts.ScriptTarget.ES2022 } });
+const mergeProjectRequirements = runInNewContext(`${mergeCompiled.outputText}\nmergeProjectRequirements;`);
+const filterDeclaration = parsed.statements.find((statement) => ts.isFunctionDeclaration(statement) && statement.name?.text === "filterRequirements");
+assert.ok(filterDeclaration, "Requirements must define list filtering.");
+const filterCompiled = ts.transpileModule(filterDeclaration.getText(parsed), { compilerOptions: { target: ts.ScriptTarget.ES2022 } });
+const filterRequirements = runInNewContext(`${filterCompiled.outputText}\nfilterRequirements;`);
 
 test("requirement conversion selects Planning even when Inventory Check is first", () => {
   assert.equal(pickStatusId([{ id: "inventory", code: "INVENTORY_CHECK" }, { id: "planning", code: "PLANNING" }]), "planning");
@@ -23,6 +31,31 @@ test("requirement conversion refuses an empty workflow catalog", () => {
   assert.throws(() => pickStatusId([]), /Planning status is not configured/);
 });
 
+test("completed backend projects appear in requirements with their workflow status", () => {
+  const rows = mergeProjectRequirements([], [{ id: "project-1", name: "Completed project", statusId: "completed", createdAt: "2026-10-20T00:00:00Z" }], [{ id: "completed", code: "COMPLETED", name: "Completed" }], [], []);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].title, "Completed project");
+  assert.equal(rows[0].status, "CONVERTED");
+  assert.equal(rows[0].projectStatusName, "Completed");
+  assert.equal(rows[0].isProjectRecord, true);
+});
+
+test("backend projects do not duplicate locally saved converted requirements", () => {
+  const local = { id: "draft-1", title: "Original requirement", status: "CONVERTED", projectId: "project-1", createdAt: "2026-10-20T00:00:00Z" };
+  const rows = mergeProjectRequirements([local], [{ id: "project-1", name: "Original requirement", statusId: "planning", createdAt: local.createdAt }], [{ id: "planning", code: "PLANNING", name: "Planning" }], [], []);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].id, "draft-1");
+  assert.equal(rows[0].projectStatusName, "Planning");
+});
+
+test("local requirement drafts remain in the merged list", () => {
+  const draft = { id: "draft-1", title: "Unconverted requirement", status: "NEW", createdAt: "2026-10-20T00:00:00Z" };
+  const rows = mergeProjectRequirements([draft], [], [], [], []);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].title, draft.title);
+  assert.equal(rows[0].status, "NEW");
+});
+
 function renderRequirements(requirements, selectedDocuments = null) {
   const component = parsed.statements.find((statement) => ts.isFunctionDeclaration(statement) && statement.name?.text === "Requirements");
   const output = ts.transpileModule(component.getText(parsed), {
@@ -33,14 +66,16 @@ function renderRequirements(requirements, selectedDocuments = null) {
   const render = runInNewContext(`${output.outputText}\nRequirements;`, {
     exports: {},
     React: { Fragment: "Fragment", createElement: (type, props, ...children) => ({ type, props: { ...props, children } }) },
-    useAuth: () => ({ user: { organizationId: "org" } }),
+    useAuth: () => ({ user: { organizationId: "org", permissions: ["project.read"] } }),
     useNavigate: () => () => {},
     useEffect: () => {},
     useState: (initial) => {
       const index = stateIndex++;
-      return [index === 7 ? selectedDocuments : typeof initial === "function" ? initial() : initial, (next) => updates.set(index, next)];
+      return [index === 8 ? selectedDocuments : typeof initial === "function" ? initial() : initial, (next) => updates.set(index, next)];
     },
     loadReqs: () => requirements,
+    mergeProjectRequirements,
+    filterRequirements,
     formatDate: (date) => date,
     AttachmentsPanel: "AttachmentsPanel"
   });
@@ -65,7 +100,7 @@ test("converted requirements retain Documents and Open Project without another c
   assert.ok(buttons.some((node) => node.props.children[0] === "Open Project"));
   assert.ok(!buttons.some((node) => String(node.props.children[0]).startsWith("Convert")));
   documents.props.onClick();
-  assert.equal(updates.get(7), convertedRequirement);
+  assert.equal(updates.get(8), convertedRequirement);
 });
 
 test("converted requirement documents use the linked project and only the requirement category", () => {
@@ -86,4 +121,25 @@ test("unconverted requirements keep draft editing and conversion actions", () =>
   assert.ok(labels.some((label) => String(label).startsWith("Convert")));
   assert.ok(!labels.includes("Documents"));
   assert.ok(!labels.includes("Open Project"));
+});
+
+const filterRows = [
+  { id: "draft", title: "House extension", description: "New estimate", clientName: "North Client", clientId: "north", priority: "HIGH", status: "NEW" },
+  { id: "planning", title: "North renovation", description: "", clientName: "North Client", clientId: "north", priority: "HIGH", status: "CONVERTED", projectStatusCode: "PLANNING" },
+  { id: "completed", title: "Warehouse fit-out", description: "Final delivery", clientName: "South Client", clientId: "south", priority: "LOW", status: "CONVERTED", projectStatusCode: "COMPLETED" }
+];
+
+test("requirement filters combine text, client and priority", () => {
+  const rows = filterRequirements(filterRows, "renovation", "north", "HIGH", "");
+  assert.deepEqual(Array.from(rows, (row) => row.id), ["planning"]);
+});
+
+test("requirement status filter includes completed converted projects", () => {
+  const rows = filterRequirements(filterRows, "", "", "", "PROJECT:COMPLETED");
+  assert.deepEqual(Array.from(rows, (row) => row.id), ["completed"]);
+});
+
+test("converted filter includes projects across workflow phases", () => {
+  const rows = filterRequirements(filterRows, "", "", "", "CONVERTED");
+  assert.deepEqual(Array.from(rows, (row) => row.id), ["planning", "completed"]);
 });
