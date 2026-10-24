@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, ApiError, type Lookup, type Client } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
-import { uploadableCategories } from "../components/AttachmentsPanel";
+import AttachmentsPanel, { uploadableCategories } from "../components/AttachmentsPanel";
 import RequirementFiles from "../components/RequirementFiles";
 import { formatDate } from "../lib/ui";
 
@@ -64,6 +64,7 @@ export default function Requirements() {
   const [wizard, setWizard] = useState(false);
   const [editReq, setEditReq] = useState<Requirement | null>(null);
   const [convertReq, setConvert] = useState<Requirement | null>(null);
+  const [documentReq, setDocumentReq] = useState<Requirement | null>(null);
 
   useEffect(() => {
     api.clients().then(setClients).catch(() => setClients([]));
@@ -112,7 +113,10 @@ export default function Requirements() {
                   <td>
                     <div className="row-actions">
                       {r.status === "CONVERTED" && r.projectId ? (
-                        <button className="btn btn-sm" onClick={() => navigate(`/projects/${r.projectId}`)}>Open Project</button>
+                        <>
+                          <button className="btn btn-sm" onClick={() => setDocumentReq(r)}>Documents</button>
+                          <button className="btn btn-sm" onClick={() => navigate(`/projects/${r.projectId}`)}>Open Project</button>
+                        </>
                       ) : (
                         <>
                           <button className="btn btn-sm" onClick={() => setEditReq(r)}>Edit / Documents</button>
@@ -149,6 +153,23 @@ export default function Requirements() {
         />
       )}
 
+      {documentReq?.projectId && (
+        <div className="modal-overlay" onClick={() => setDocumentReq(null)}>
+          <div className="modal" role="dialog" aria-modal="true" aria-labelledby="requirement-documents-title" style={{ width: "min(640px, calc(100vw - 40px))" }} onClick={(event) => event.stopPropagation()}>
+            <div className="modal-head">
+              <span id="requirement-documents-title">Requirement Documents: {documentReq.title}</span>
+              <button type="button" className="icon-btn" aria-label="Close documents" onClick={() => setDocumentReq(null)}>✕</button>
+            </div>
+            <div className="modal-body">
+              <AttachmentsPanel key={documentReq.projectId} projectId={documentReq.projectId} categories={["REQUIREMENT"]} defaultCategory="REQUIREMENT" />
+            </div>
+            <div className="modal-foot">
+              <button type="button" className="btn" onClick={() => setDocumentReq(null)}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {convertReq && (
         <ConvertModal
           requirement={convertReq}
@@ -167,8 +188,10 @@ export default function Requirements() {
   );
 }
 
-function pickStatusId(statuses: Lookup[]): string | undefined {
-  return statuses.find((s) => s.code === "PLANNING")?.id ?? statuses[0]?.id;
+function pickStatusId(statuses: Lookup[]): string {
+  const planning = statuses.find((s) => s.code === "PLANNING");
+  if (!planning) throw new Error("Planning status is not configured. Cannot convert this requirement to a project.");
+  return planning.id;
 }
 function pickPriorityId(priorities: Lookup[], code: string): string | undefined {
   return priorities.find((p) => p.code === code)?.id ?? priorities.find((p) => p.code === "MEDIUM")?.id;
@@ -257,7 +280,7 @@ function RequirementWizard(props: {
       savedRef.current = true;
       props.onCreated(buildReq(), project);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Unable to convert to project.");
+      setError(err instanceof Error ? err.message : "Unable to convert to project.");
       setSaving(false);
     }
   }
@@ -390,7 +413,7 @@ function ConvertModal(props: {
       if (canAttach) await adoptDraftFiles(project.id, r.id);
       props.onConverted(project.id);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Unable to convert to project.");
+      setError(err instanceof Error ? err.message : "Unable to convert to project.");
       setSaving(false);
     }
   }
