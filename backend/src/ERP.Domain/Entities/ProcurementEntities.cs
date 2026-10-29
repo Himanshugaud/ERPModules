@@ -48,7 +48,7 @@ public class PurchaseOrder
     public Guid Id { get; set; }
     public Guid OrganizationId { get; set; }
     public string PoNumber { get; set; } = default!;
-    public Guid SupplierId { get; set; }
+    public Guid? SupplierId { get; set; }
     public Guid? ProjectId { get; set; }
     public Guid? WarehouseId { get; set; }
     public Guid? MaterialRequirementId { get; set; }

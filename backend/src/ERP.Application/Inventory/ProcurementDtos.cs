@@ -44,7 +44,7 @@ public sealed class ConvertRequirementLineRequest
 
 public sealed class ConvertToPurchaseOrderRequest
 {
-    public Guid SupplierId { get; set; }
+    public Guid? SupplierId { get; set; }
     public Guid? WarehouseId { get; set; }
     public DateOnly? ExpectedDate { get; set; }
     public string? CurrencyCode { get; set; }
@@ -94,6 +94,7 @@ public sealed class MaterialRequirementResponse
 // ---- Purchase Orders ----
 public sealed class PurchaseOrderLineRequest
 {
+    public Guid? Id { get; set; }
     public Guid ItemId { get; set; }
     public decimal Qty { get; set; }
     public Guid? UomId { get; set; }
@@ -104,7 +105,7 @@ public sealed class PurchaseOrderLineRequest
 public sealed class CreatePurchaseOrderRequest
 {
     public string? PoNumber { get; set; }
-    public Guid SupplierId { get; set; }
+    public Guid? SupplierId { get; set; }
     public Guid? ProjectId { get; set; }
     public Guid? WarehouseId { get; set; }
     public DateOnly? OrderDate { get; set; }
@@ -116,7 +117,7 @@ public sealed class CreatePurchaseOrderRequest
 
 public sealed class UpdatePurchaseOrderRequest
 {
-    public Guid SupplierId { get; set; }
+    public Guid? SupplierId { get; set; }
     public Guid? ProjectId { get; set; }
     public Guid? WarehouseId { get; set; }
     public DateOnly? OrderDate { get; set; }
@@ -130,6 +131,23 @@ public sealed class UpdatePurchaseOrderRequest
 public sealed class RejectPurchaseOrderRequest
 {
     public string Reason { get; set; } = default!;
+}
+
+public sealed class OrderPurchaseOrderLineRequest
+{
+    public Guid LineId { get; set; }
+    public decimal UnitPrice { get; set; }
+    public decimal TaxRatePercent { get; set; }
+}
+
+public sealed class MarkPurchaseOrderOrderedRequest
+{
+    public Guid SupplierId { get; set; }
+    public DateOnly? OrderDate { get; set; }
+    public DateOnly? ExpectedDate { get; set; }
+    public string? CurrencyCode { get; set; }
+    public string? RowVersion { get; set; }
+    public List<OrderPurchaseOrderLineRequest> Lines { get; set; } = new();
 }
 
 public sealed class PurchaseOrderLineResponse
@@ -150,7 +168,7 @@ public sealed class PurchaseOrderResponse
 {
     public Guid Id { get; set; }
     public string PoNumber { get; set; } = default!;
-    public Guid SupplierId { get; set; }
+    public Guid? SupplierId { get; set; }
     public Guid? ProjectId { get; set; }
     public Guid? WarehouseId { get; set; }
     public Guid? MaterialRequirementId { get; set; }

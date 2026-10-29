@@ -200,6 +200,15 @@ function MaterialsEstimateModal(props: { project: Project; warehouses: Warehouse
     }
   }
 
+  async function handleSheetSaved(saved: MaterialRequirement, replaced?: MaterialRequirement) {
+    setRequirements(current => [saved, ...current.filter(sheet => sheet.id !== saved.id && sheet.id !== replaced?.id)]);
+    setCreator(null);
+    setAddOpen(false);
+    setError(null);
+    await saveSheetFile(saved, replaced);
+    await loadPlan();
+  }
+
   async function publish() {
     if (!window.confirm("Publish this plan? Supply Chain will receive the material list and the Execution team will see the project plan.")) return;
     setPublishing(true);
@@ -381,7 +390,7 @@ function MaterialsEstimateModal(props: { project: Project; warehouses: Warehouse
           parsed={creator.parsed}
           replace={creator.replace}
           onClose={() => setCreator(null)}
-          onSaved={async (saved, replaced) => { setCreator(null); await saveSheetFile(saved, replaced); await load(); }}
+          onSaved={handleSheetSaved}
         />
       )}
 
@@ -393,7 +402,7 @@ function MaterialsEstimateModal(props: { project: Project; warehouses: Warehouse
           items={props.items}
           uoms={props.uoms}
           onClose={() => setAddOpen(false)}
-          onSaved={async (saved) => { setAddOpen(false); await saveSheetFile(saved); await load(); }}
+          onSaved={handleSheetSaved}
         />
       )}
     </div>

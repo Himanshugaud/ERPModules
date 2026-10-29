@@ -154,6 +154,14 @@ tbody tr:hover { background: #fafafa; }
 }
 .field input:focus, .field select:focus, .field textarea:focus { border-color: var(--primary); }
 .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.procurement-modal .field { min-width: 0; }
+.procurement-modal .field input, .procurement-modal .field select, .procurement-modal .field textarea { width: 100%; min-width: 0; max-width: 100%; }
+.procurement-modal .modal-head h3 { overflow-wrap: anywhere; }
+.procurement-modal .modal-head .icon-btn { flex-shrink: 0; }
+.procurement-modal .form-error { overflow-wrap: anywhere; }
+@media (max-width: 600px) {
+  .procurement-modal .row2 { grid-template-columns: minmax(0, 1fr); }
+}
 .form-error { background: var(--red-soft); color: var(--red); border: 1px solid #fecaca; padding: 10px 12px; border-radius: 8px; font-size: 13px; margin-bottom: 12px; }
 
 /* Login */

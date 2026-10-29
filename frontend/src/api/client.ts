@@ -2,9 +2,21 @@ const BASE_URL: string =
   (import.meta as any).env?.VITE_API_BASE_URL ?? "http://localhost:7072/api/v1";
 
 const TOKEN_KEY = "erp_token";
+export const SESSION_EXPIRED_EVENT = "erp:session-expired";
+
+export function getTokenExpiry(token: string | null): number {
+  try {
+    const payload = token!.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
+    const { exp } = JSON.parse(atob(payload.padEnd(Math.ceil(payload.length / 4) * 4, "=")));
+    return typeof exp === "number" && Number.isFinite(exp) ? exp * 1000 : 0;
+  } catch {
+    return 0;
+  }
+}
 
 export function getToken(): string | null {
-  return localStorage.getItem(TOKEN_KEY);
+  const token = localStorage.getItem(TOKEN_KEY);
+  return getTokenExpiry(token) > Date.now() ? token : null;
 }
 export function setToken(token: string) {
   localStorage.setItem(TOKEN_KEY, token);
@@ -33,6 +45,12 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   if (token) headers.Authorization = `Bearer ${token}`;
 
   const res = await fetch(`${BASE_URL}${path}`, { ...options, headers });
+
+  if (res.status === 401 && token && localStorage.getItem(TOKEN_KEY) === token) {
+    clearToken();
+    clearRefCache();
+    window.dispatchEvent(new Event(SESSION_EXPIRED_EVENT));
+  }
 
   if (res.status === 204) return undefined as T;
 
@@ -109,6 +127,17 @@ export interface Project {
 export interface Paged<T> {
   data: T[];
   pagination: { page: number; pageSize: number; totalItems: number; totalPages: number };
+}
+
+async function requestAll<T>(path: string, params: Record<string, string | number | undefined> = {}): Promise<T[]> {
+  const rows: T[] = [];
+  let totalPages = 1;
+  for (let page = 1; page <= totalPages; page++) {
+    const result = await request<Paged<T>>(`${path}?${qstr({ ...params, page, pageSize: 100 })}`);
+    rows.push(...result.data);
+    totalPages = result.pagination.totalPages;
+  }
+  return rows;
 }
 
 export interface Task {
@@ -368,7 +397,7 @@ export interface PurchaseOrderLine {
 export interface PurchaseOrder {
   id: string;
   poNumber: string;
-  supplierId: string;
+  supplierId?: string | null;
   projectId?: string;
   warehouseId?: string;
   materialRequirementId?: string;
@@ -623,6 +652,7 @@ export const api = {
 
   stock: (params: Record<string, string | number | boolean | undefined> = {}) =>
     request<Paged<StockLevel>>(`/stock?${qstr(params)}`),
+  allStock: () => requestAll<StockLevel>("/stock"),
   lowStock: (params: Record<string, string | number | undefined> = {}) =>
     request<Paged<StockLevel>>(`/stock/low?${qstr(params)}`),
   stockMovements: (params: Record<string, string | number | undefined> = {}) =>
@@ -639,7 +669,12 @@ export const api = {
 
   purchaseOrders: (params: Record<string, string | number | undefined> = {}) =>
     request<Paged<PurchaseOrder>>(`/purchase-orders?${qstr(params)}`),
+  allPurchaseOrders: (params: Record<string, string | number | undefined> = {}) => requestAll<PurchaseOrder>("/purchase-orders", params),
   purchaseOrder: (id: string) => request<{ data: PurchaseOrder }>(`/purchase-orders/${id}`).then((r) => r.data),
+  createPurchaseOrder: (payload: Record<string, unknown>) =>
+    request<{ data: PurchaseOrder }>("/purchase-orders", { method: "POST", body: JSON.stringify(payload) }).then((r) => r.data),
+  updatePurchaseOrder: (id: string, payload: Record<string, unknown>) =>
+    request<{ data: PurchaseOrder }>(`/purchase-orders/${id}`, { method: "PUT", body: JSON.stringify(payload) }).then((r) => r.data),
 
   materialIssues: (params: Record<string, string | number | undefined> = {}) =>
     request<Paged<InventoryDocument>>(`/material-issues?${qstr(params)}`),
@@ -648,6 +683,7 @@ export const api = {
 
   stockTransfers: (params: Record<string, string | number | undefined> = {}) =>
     request<Paged<InventoryDocument>>(`/stock-transfers?${qstr(params)}`),
+  allStockTransfers: (params: Record<string, string | number | undefined> = {}) => requestAll<InventoryDocument>("/stock-transfers", params),
   stockTransfer: (id: string) => request<{ data: InventoryDocument }>(`/stock-transfers/${id}`).then((r) => r.data),
   createStockTransfer: (payload: Record<string, unknown>) =>
     request<{ data: InventoryDocument }>("/stock-transfers", { method: "POST", body: JSON.stringify(payload) }).then((r) => r.data),
@@ -681,8 +717,8 @@ export const api = {
     request<{ data: PurchaseOrder }>(`/purchase-orders/${id}/approve`, { method: "POST" }).then((r) => r.data),
   rejectPurchaseOrder: (id: string, reason: string) =>
     request<{ data: PurchaseOrder }>(`/purchase-orders/${id}/reject`, { method: "POST", body: JSON.stringify({ reason }) }).then((r) => r.data),
-  markPurchaseOrderOrdered: (id: string) =>
-    request<{ data: PurchaseOrder }>(`/purchase-orders/${id}/mark-ordered`, { method: "POST" }).then((r) => r.data),
+  markPurchaseOrderOrdered: (id: string, payload: Record<string, unknown>) =>
+    request<{ data: PurchaseOrder }>(`/purchase-orders/${id}/mark-ordered`, { method: "POST", body: JSON.stringify(payload) }).then((r) => r.data),
   closePurchaseOrder: (id: string) =>
     request<{ data: PurchaseOrder }>(`/purchase-orders/${id}/close`, { method: "POST" }).then((r) => r.data),
 

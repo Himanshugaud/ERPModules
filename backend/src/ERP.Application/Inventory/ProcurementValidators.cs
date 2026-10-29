@@ -40,8 +40,9 @@ public sealed class ConvertToPurchaseOrderRequestValidator : AbstractValidator<C
 {
     public ConvertToPurchaseOrderRequestValidator()
     {
-        RuleFor(x => x.SupplierId).NotEmpty();
         RuleFor(x => x.Lines).NotEmpty().WithMessage("At least one line is required.");
+        RuleFor(x => x.Lines).Must(lines => lines.Select(line => line.MaterialRequirementLineId).Distinct().Count() == lines.Count)
+            .WithMessage("Each material request line can appear only once.");
         RuleForEach(x => x.Lines).ChildRules(l =>
         {
             l.RuleFor(x => x.MaterialRequirementLineId).NotEmpty();
@@ -56,7 +57,6 @@ public sealed class CreatePurchaseOrderRequestValidator : AbstractValidator<Crea
 {
     public CreatePurchaseOrderRequestValidator()
     {
-        RuleFor(x => x.SupplierId).NotEmpty();
         RuleFor(x => x.Lines).NotEmpty().WithMessage("At least one line is required.");
         RuleForEach(x => x.Lines).ChildRules(l =>
         {
@@ -72,7 +72,6 @@ public sealed class UpdatePurchaseOrderRequestValidator : AbstractValidator<Upda
 {
     public UpdatePurchaseOrderRequestValidator()
     {
-        RuleFor(x => x.SupplierId).NotEmpty();
         RuleFor(x => x.Lines).NotEmpty().WithMessage("At least one line is required.");
         RuleForEach(x => x.Lines).ChildRules(l =>
         {
@@ -89,5 +88,23 @@ public sealed class RejectPurchaseOrderRequestValidator : AbstractValidator<Reje
     public RejectPurchaseOrderRequestValidator()
     {
         RuleFor(x => x.Reason).NotEmpty().MaximumLength(500);
+    }
+}
+
+public sealed class MarkPurchaseOrderOrderedRequestValidator : AbstractValidator<MarkPurchaseOrderOrderedRequest>
+{
+    public MarkPurchaseOrderOrderedRequestValidator()
+    {
+        RuleFor(x => x.SupplierId).NotEmpty();
+        RuleFor(x => x.CurrencyCode).Length(3).When(x => !string.IsNullOrEmpty(x.CurrencyCode));
+        RuleFor(x => x.Lines).NotEmpty();
+        RuleFor(x => x.Lines).Must(lines => lines.Select(line => line.LineId).Distinct().Count() == lines.Count)
+            .WithMessage("Each purchase order line must be priced exactly once.");
+        RuleForEach(x => x.Lines).ChildRules(line =>
+        {
+            line.RuleFor(x => x.LineId).NotEmpty();
+            line.RuleFor(x => x.UnitPrice).GreaterThan(0);
+            line.RuleFor(x => x.TaxRatePercent).InclusiveBetween(0, 100);
+        });
     }
 }

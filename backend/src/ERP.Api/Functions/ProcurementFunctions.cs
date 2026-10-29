@@ -109,16 +109,18 @@ public sealed class PurchaseOrdersFunctions
     private readonly IValidator<CreatePurchaseOrderRequest> _createValidator;
     private readonly IValidator<UpdatePurchaseOrderRequest> _updateValidator;
     private readonly IValidator<RejectPurchaseOrderRequest> _rejectValidator;
+    private readonly IValidator<MarkPurchaseOrderOrderedRequest> _orderValidator;
 
     public PurchaseOrdersFunctions(IPurchaseOrderService service, IAuthorizationGuard auth,
         IValidator<CreatePurchaseOrderRequest> createValidator, IValidator<UpdatePurchaseOrderRequest> updateValidator,
-        IValidator<RejectPurchaseOrderRequest> rejectValidator)
+        IValidator<RejectPurchaseOrderRequest> rejectValidator, IValidator<MarkPurchaseOrderOrderedRequest> orderValidator)
     {
         _service = service;
         _auth = auth;
         _createValidator = createValidator;
         _updateValidator = updateValidator;
         _rejectValidator = rejectValidator;
+        _orderValidator = orderValidator;
     }
 
     [Function("CreatePurchaseOrder")]
@@ -193,7 +195,8 @@ public sealed class PurchaseOrdersFunctions
         [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "v1/purchase-orders/{id:guid}/mark-ordered")] HttpRequest req, Guid id, CancellationToken ct)
     {
         _auth.Require(Permissions.PurchaseOrderUpdate);
-        return Http.Ok(await _service.MarkOrderedAsync(id, ct));
+        var body = await Http.ReadValidatedAsync(req, _orderValidator, ct);
+        return Http.Ok(await _service.MarkOrderedAsync(id, body, ct));
     }
 
     [Function("ClosePurchaseOrder")]

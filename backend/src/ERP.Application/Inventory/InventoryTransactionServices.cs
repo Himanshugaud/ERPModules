@@ -33,7 +33,7 @@ public sealed class GoodsReceiptService : IGoodsReceiptService
     private readonly IClock _clock;
 
     private static readonly string[] ReceivablePoStatuses =
-        { PurchaseOrderStatuses.Approved, PurchaseOrderStatuses.Ordered, PurchaseOrderStatuses.PartiallyReceived };
+        { PurchaseOrderStatuses.Ordered, PurchaseOrderStatuses.PartiallyReceived };
 
     public GoodsReceiptService(IGoodsReceiptRepository receipts, IWarehouseRepository warehouses, ISupplierRepository suppliers,
         IItemRepository items, IBatchRepository batches, IPurchaseOrderRepository purchaseOrders, IStockLedger ledger,
@@ -64,6 +64,10 @@ public sealed class GoodsReceiptService : IGoodsReceiptService
             if (!await _items.ExistsAsync(orgId, line.ItemId, ct))
                 throw new ConflictException($"Item {line.ItemId} does not belong to the organization.");
 
+        if (!request.PurchaseOrderId.HasValue && !string.IsNullOrWhiteSpace(request.PoReference)
+            && await _purchaseOrders.NumberExistsAsync(orgId, request.PoReference.Trim(), ct))
+            throw new ConflictException("Select the existing purchase order instead of entering it as a manual receipt reference.");
+
         PurchaseOrder? po = null;
         if (request.PurchaseOrderId.HasValue)
         {
@@ -71,6 +75,14 @@ public sealed class GoodsReceiptService : IGoodsReceiptService
                  ?? throw new ConflictException("Purchase order does not belong to the organization.");
             if (!ReceivablePoStatuses.Contains(po.Status))
                 throw new ConflictException($"Cannot receive against a purchase order in status '{po.Status}'.");
+            foreach (var group in request.Lines.GroupBy(line => line.ItemId))
+            {
+                var matching = po.Lines.Where(line => line.ItemId == group.Key).ToList();
+                if (matching.Count == 0 || group.Sum(line => line.Qty) > matching.Sum(line => line.Qty - line.QtyReceived))
+                    throw new ConflictException("Receipt items and quantities must match the outstanding purchase order.");
+                if (group.Any(line => matching.All(ordered => ordered.UnitPrice != line.UnitCost)))
+                    throw new ConflictException("Receipt prices must match the ordered purchase order prices.");
+            }
         }
 
         var number = string.IsNullOrWhiteSpace(request.GrnNumber)
@@ -84,9 +96,9 @@ public sealed class GoodsReceiptService : IGoodsReceiptService
             Id = Guid.NewGuid(),
             OrganizationId = orgId,
             GrnNumber = number,
-            SupplierId = request.SupplierId,
+            SupplierId = po?.SupplierId ?? request.SupplierId,
             PurchaseOrderId = request.PurchaseOrderId,
-            PoReference = request.PoReference?.Trim(),
+            PoReference = po?.PoNumber ?? request.PoReference?.Trim(),
             WarehouseId = request.WarehouseId,
             ReceivedDate = request.ReceivedDate ?? DateOnly.FromDateTime(_clock.UtcNow),
             // PO receipts wait for approval; stock and PO quantities only move once approved.
@@ -103,7 +115,7 @@ public sealed class GoodsReceiptService : IGoodsReceiptService
 
             foreach (var line in request.Lines)
             {
-                Guid? batchId = await ResolveBatchAsync(orgId, line, request.SupplierId, token);
+                Guid? batchId = await ResolveBatchAsync(orgId, line, receipt.SupplierId, token);
                 receipt.Lines.Add(new GoodsReceiptLine
                 {
                     Id = Guid.NewGuid(),
@@ -140,10 +152,10 @@ public sealed class GoodsReceiptService : IGoodsReceiptService
                  ?? throw new ConflictException("Purchase order does not belong to the organization.");
             if (!ReceivablePoStatuses.Contains(po.Status))
                 throw new ConflictException($"Cannot receive against a purchase order in status '{po.Status}'.");
-            foreach (var line in receipt.Lines)
+            foreach (var itemLines in receipt.Lines.GroupBy(line => line.ItemId))
             {
-                var open = po.Lines.Where(l => l.ItemId == line.ItemId).Sum(l => l.Qty - l.QtyReceived);
-                if (line.Qty > open)
+                var open = po.Lines.Where(line => line.ItemId == itemLines.Key).Sum(line => line.Qty - line.QtyReceived);
+                if (itemLines.Sum(line => line.Qty) > open)
                     throw new ConflictException("A received quantity is more than what is still pending on the purchase order.");
             }
         }
@@ -185,9 +197,14 @@ public sealed class GoodsReceiptService : IGoodsReceiptService
 
             if (po is not null)
             {
-                var poLine = po.Lines.FirstOrDefault(l => l.ItemId == line.ItemId && l.QtyReceived < l.Qty);
-                if (poLine is not null)
-                    poLine.QtyReceived += line.Qty;
+                var remaining = line.Qty;
+                foreach (var poLine in po.Lines.Where(orderLine => orderLine.ItemId == line.ItemId && orderLine.QtyReceived < orderLine.Qty))
+                {
+                    var allocated = Math.Min(remaining, poLine.Qty - poLine.QtyReceived);
+                    poLine.QtyReceived += allocated;
+                    remaining -= allocated;
+                    if (remaining == 0) break;
+                }
             }
 
             _outbox.Enqueue(new StockReceived(line.ItemId, receipt.WarehouseId, line.Qty, line.UnitCost) { OrganizationId = orgId });
@@ -426,13 +443,16 @@ public sealed class StockTransferService : IStockTransferService
     private readonly IClock _clock;
     private readonly IMaterialRequirementRepository _requirements;
     private readonly IProjectRepository _projects;
+    private readonly IStockLevelRepository _levels;
 
     public StockTransferService(IStockTransferRepository transfers, IWarehouseRepository warehouses, IItemRepository items,
         IStockLedger ledger, IProjectStatusAdvancer statusAdvancer, ITenantContext tenant, IUnitOfWork uow, IAuditWriter audit,
-        IOutboxWriter outbox, IClock clock, IMaterialRequirementRepository requirements, IProjectRepository projects)
+        IOutboxWriter outbox, IClock clock, IMaterialRequirementRepository requirements, IProjectRepository projects,
+        IStockLevelRepository levels)
     {
         _requirements = requirements;
         _projects = projects;
+        _levels = levels;
         _transfers = transfers;
         _warehouses = warehouses;
         _items = items;
@@ -448,6 +468,9 @@ public sealed class StockTransferService : IStockTransferService
     public async Task<InventoryDocumentResponse> CreateAsync(CreateStockTransferRequest request, CancellationToken ct = default)
     {
         var orgId = _tenant.OrganizationId;
+        if (request.MaterialRequirementId.HasValue)
+            await RequireAvailableStockAsync(request.FromWarehouseId,
+                request.Lines.Select(line => (line.ItemId, line.Qty)), ct);
         var toWarehouseId = await ResolveDestinationAsync(request, orgId, ct);
         if (request.FromWarehouseId.HasValue && !await _warehouses.ExistsAsync(orgId, request.FromWarehouseId.Value, ct))
             throw new ConflictException("Source warehouse does not belong to the organization.");
@@ -567,10 +590,25 @@ public sealed class StockTransferService : IStockTransferService
     public async Task<InventoryDocumentResponse> ApproveAsync(Guid id, CancellationToken ct = default)
     {
         var t = await RequireStatusAsync(id, TransferStatuses.Requested, ct);
+        if (t.MaterialRequirementId.HasValue)
+            await RequireAvailableStockAsync(t.FromWarehouseId, t.Lines.Select(line => (line.ItemId, line.Qty)), ct);
         t.Status = TransferStatuses.Approved;
         t.ApprovedBy = _tenant.UserId;
         t.ApprovedAt = _clock.UtcNow;
         return await SaveStatusAsync(t, 0, ct);
+    }
+
+    private async Task RequireAvailableStockAsync(Guid? warehouseId, IEnumerable<(Guid ItemId, decimal Qty)> lines, CancellationToken ct)
+    {
+        if (!warehouseId.HasValue)
+            throw new ConflictException("Select a source warehouse with available stock before marking a material request ready to ship.");
+        foreach (var group in lines.GroupBy(line => line.ItemId))
+        {
+            var level = await _levels.GetAsync(_tenant.OrganizationId, group.Key, warehouseId.Value, null, false, ct);
+            var available = level is null ? 0 : level.QtyOnHand - level.QtyReserved;
+            if (group.Sum(line => line.Qty) > available)
+                throw new ConflictException($"Insufficient available stock for item {group.Key} at the selected source warehouse. Available: {available}.");
+        }
     }
 
     public async Task<InventoryDocumentResponse> DispatchAsync(Guid id, DispatchStockTransferRequest request, CancellationToken ct = default)

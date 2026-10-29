@@ -278,20 +278,17 @@ public sealed class MaterialRequirementService : IMaterialRequirementService
         var r = await _requirements.GetAsync(orgId, id, track: true, ct) ?? throw NotFoundException.For("MaterialRequirement", id);
         if (r.Status != MaterialRequirementStatuses.Approved)
             throw new ConflictException($"Only approved requirements can be converted to a purchase order (current status: {r.Status}).");
-        if (!await _suppliers.ExistsAsync(orgId, request.SupplierId, ct))
-            throw new ConflictException("Supplier does not belong to the organization.");
-
         var po = new PurchaseOrder
         {
             Id = Guid.NewGuid(),
             OrganizationId = orgId,
             PoNumber = InventoryNumbers.Next("PO"),
-            SupplierId = request.SupplierId,
-            ProjectId = r.ProjectId,
+            SupplierId = null,
+            ProjectId = null,
             WarehouseId = request.WarehouseId ?? r.WarehouseId,
             MaterialRequirementId = r.Id,
             Status = PurchaseOrderStatuses.Draft,
-            OrderDate = DateOnly.FromDateTime(_clock.UtcNow),
+            OrderDate = null,
             ExpectedDate = request.ExpectedDate,
             CurrencyCode = request.CurrencyCode,
             Notes = request.Notes,
@@ -307,11 +304,13 @@ public sealed class MaterialRequirementService : IMaterialRequirementService
             {
                 var reqLine = r.Lines.FirstOrDefault(l => l.Id == lineRequest.MaterialRequirementLineId)
                     ?? throw new ConflictException($"Requirement line {lineRequest.MaterialRequirementLineId} not found on this requirement.");
+                if (lineRequest.Qty.HasValue && lineRequest.Qty > reqLine.Qty)
+                    throw new ConflictException("Purchase quantity cannot exceed the requested quantity.");
                 if (reqLine.PurchaseOrderLineId.HasValue)
                     throw new ConflictException($"Requirement line {reqLine.Id} has already been converted to a purchase order.");
 
                 var poLine = ProcurementMappers.BuildLine(po.Id, reqLine.ItemId, lineRequest.Qty ?? reqLine.Qty, reqLine.UomId,
-                    lineRequest.UnitPrice, lineRequest.TaxRatePercent, reqLine.Id);
+                    0, 0, reqLine.Id);
                 po.Lines.Add(poLine);
             }
 
@@ -353,7 +352,7 @@ public interface IPurchaseOrderService
     Task<PurchaseOrderResponse> SubmitAsync(Guid id, CancellationToken ct = default);
     Task<PurchaseOrderResponse> ApproveAsync(Guid id, CancellationToken ct = default);
     Task<PurchaseOrderResponse> RejectAsync(Guid id, RejectPurchaseOrderRequest request, CancellationToken ct = default);
-    Task<PurchaseOrderResponse> MarkOrderedAsync(Guid id, CancellationToken ct = default);
+    Task<PurchaseOrderResponse> MarkOrderedAsync(Guid id, MarkPurchaseOrderOrderedRequest request, CancellationToken ct = default);
     Task<PurchaseOrderResponse> CloseAsync(Guid id, CancellationToken ct = default);
 }
 
@@ -368,9 +367,13 @@ public sealed class PurchaseOrderService : IPurchaseOrderService
     private readonly IAuditWriter _audit;
     private readonly IOutboxWriter _outbox;
     private readonly IClock _clock;
+    private readonly IProjectRepository _projects;
+    private readonly IUnitOfMeasureRepository _uoms;
+    private readonly IMaterialRequirementRepository _requirements;
 
     public PurchaseOrderService(IPurchaseOrderRepository orders, ISupplierRepository suppliers, IWarehouseRepository warehouses,
-        IItemRepository items, ITenantContext tenant, IUnitOfWork uow, IAuditWriter audit, IOutboxWriter outbox, IClock clock)
+        IItemRepository items, ITenantContext tenant, IUnitOfWork uow, IAuditWriter audit, IOutboxWriter outbox, IClock clock,
+        IProjectRepository projects, IUnitOfMeasureRepository uoms, IMaterialRequirementRepository requirements)
     {
         _orders = orders;
         _suppliers = suppliers;
@@ -381,18 +384,33 @@ public sealed class PurchaseOrderService : IPurchaseOrderService
         _audit = audit;
         _outbox = outbox;
         _clock = clock;
+        _projects = projects;
+        _uoms = uoms;
+        _requirements = requirements;
+    }
+
+    private async Task ValidateReferencesAsync(Guid organizationId, Guid? supplierId, Guid? projectId, Guid? warehouseId,
+        IEnumerable<PurchaseOrderLineRequest> lines, CancellationToken ct)
+    {
+        if (supplierId.HasValue && !await _suppliers.ExistsAsync(organizationId, supplierId.Value, ct))
+            throw new ConflictException("Supplier does not belong to the organization.");
+        if (projectId.HasValue && await _projects.GetByIdAsync(organizationId, projectId.Value, false, ct) is null)
+            throw new ConflictException("Project does not belong to the organization.");
+        if (warehouseId.HasValue && !await _warehouses.ExistsAsync(organizationId, warehouseId.Value, ct))
+            throw new ConflictException("Warehouse does not belong to the organization.");
+        foreach (var line in lines)
+        {
+            if (!await _items.ExistsAsync(organizationId, line.ItemId, ct))
+                throw new ConflictException($"Item {line.ItemId} does not belong to the organization.");
+            if (line.UomId.HasValue && !await _uoms.ExistsAsync(organizationId, line.UomId.Value, ct))
+                throw new ConflictException("Unit of measure does not belong to the organization.");
+        }
     }
 
     public async Task<PurchaseOrderResponse> CreateAsync(CreatePurchaseOrderRequest request, CancellationToken ct = default)
     {
         var orgId = _tenant.OrganizationId;
-        if (!await _suppliers.ExistsAsync(orgId, request.SupplierId, ct))
-            throw new ConflictException("Supplier does not belong to the organization.");
-        if (request.WarehouseId.HasValue && !await _warehouses.ExistsAsync(orgId, request.WarehouseId.Value, ct))
-            throw new ConflictException("Warehouse does not belong to the organization.");
-        foreach (var line in request.Lines)
-            if (!await _items.ExistsAsync(orgId, line.ItemId, ct))
-                throw new ConflictException($"Item {line.ItemId} does not belong to the organization.");
+        await ValidateReferencesAsync(orgId, request.SupplierId, request.ProjectId, request.WarehouseId, request.Lines, ct);
 
         var number = string.IsNullOrWhiteSpace(request.PoNumber)
             ? InventoryNumbers.Next("PO")
@@ -405,11 +423,11 @@ public sealed class PurchaseOrderService : IPurchaseOrderService
             Id = Guid.NewGuid(),
             OrganizationId = orgId,
             PoNumber = number,
-            SupplierId = request.SupplierId,
-            ProjectId = request.ProjectId,
+            SupplierId = null,
+            ProjectId = null,
             WarehouseId = request.WarehouseId,
             Status = PurchaseOrderStatuses.Draft,
-            OrderDate = request.OrderDate ?? DateOnly.FromDateTime(_clock.UtcNow),
+            OrderDate = null,
             ExpectedDate = request.ExpectedDate,
             CurrencyCode = request.CurrencyCode,
             Notes = request.Notes,
@@ -421,7 +439,7 @@ public sealed class PurchaseOrderService : IPurchaseOrderService
         {
             await _orders.AddAsync(po, token);
             foreach (var line in request.Lines)
-                po.Lines.Add(ProcurementMappers.BuildLine(po.Id, line.ItemId, line.Qty, line.UomId, line.UnitPrice, line.TaxRatePercent, null));
+                po.Lines.Add(ProcurementMappers.BuildLine(po.Id, line.ItemId, line.Qty, line.UomId, 0, 0, null));
 
             po.SubTotal = po.Lines.Sum(l => Math.Round(l.Qty * l.UnitPrice, 4));
             po.TaxAmount = po.Lines.Sum(l => l.TaxAmount);
@@ -458,28 +476,67 @@ public sealed class PurchaseOrderService : IPurchaseOrderService
         var o = await _orders.GetAsync(orgId, id, track: true, ct) ?? throw NotFoundException.For("PurchaseOrder", id);
         if (o.Status != PurchaseOrderStatuses.Draft)
             throw new ConflictException($"Only draft purchase orders can be edited (current status: {o.Status}).");
-        if (!await _suppliers.ExistsAsync(orgId, request.SupplierId, ct))
-            throw new ConflictException("Supplier does not belong to the organization.");
-        foreach (var line in request.Lines)
-            if (!await _items.ExistsAsync(orgId, line.ItemId, ct))
-                throw new ConflictException($"Item {line.ItemId} does not belong to the organization.");
+        await ValidateReferencesAsync(orgId, request.SupplierId, request.ProjectId, request.WarehouseId, request.Lines, ct);
 
-        if (!string.IsNullOrEmpty(request.RowVersion))
-            o.RowVersion = Convert.FromBase64String(request.RowVersion);
+        if (!string.IsNullOrEmpty(request.RowVersion) && request.RowVersion != Convert.ToBase64String(o.RowVersion))
+            throw new ConcurrencyException();
 
-        o.SupplierId = request.SupplierId;
-        o.ProjectId = request.ProjectId;
+        var existingLines = o.Lines.ToDictionary(line => line.Id);
+        var retainedIds = request.Lines.Where(line => line.Id.HasValue).Select(line => line.Id!.Value).ToList();
+        if (retainedIds.Distinct().Count() != retainedIds.Count || retainedIds.Any(lineId => !existingLines.ContainsKey(lineId)))
+            throw new ConflictException("Draft contains duplicate or unknown purchase order lines.");
+        if (request.Lines.Any(line => line.Id.HasValue && existingLines[line.Id.Value].MaterialRequirementLineId.HasValue
+            && existingLines[line.Id.Value].ItemId != line.ItemId))
+            throw new ConflictException("Remove a linked material before replacing it with a different item.");
+
+        MaterialRequirement? requirement = null;
+        if (o.MaterialRequirementId.HasValue)
+            requirement = await _requirements.GetAsync(orgId, o.MaterialRequirementId.Value, true, ct)
+                ?? throw NotFoundException.For("MaterialRequirement", o.MaterialRequirementId.Value);
+        if (requirement is not null && request.Lines.Any(line => line.Id.HasValue
+            && existingLines[line.Id.Value].MaterialRequirementLineId is Guid requirementLineId
+            && line.Qty > requirement.Lines.Single(entry => entry.Id == requirementLineId).Qty))
+            throw new ConflictException("Purchase quantity cannot exceed the requested quantity.");
+
+        o.SupplierId = null;
+        o.ProjectId = null;
         o.WarehouseId = request.WarehouseId;
-        o.OrderDate = request.OrderDate;
+        o.OrderDate = null;
         o.ExpectedDate = request.ExpectedDate;
         o.CurrencyCode = request.CurrencyCode;
         o.Notes = request.Notes;
         o.UpdatedAt = _clock.UtcNow;
         o.UpdatedBy = _tenant.UserId;
 
-        o.Lines.Clear();
+        foreach (var removed in o.Lines.Where(line => !retainedIds.Contains(line.Id)).ToList())
+        {
+            if (requirement is not null)
+                foreach (var linked in requirement.Lines.Where(line => line.PurchaseOrderLineId == removed.Id))
+                    linked.PurchaseOrderLineId = null;
+            o.Lines.Remove(removed);
+        }
         foreach (var line in request.Lines)
-            o.Lines.Add(ProcurementMappers.BuildLine(o.Id, line.ItemId, line.Qty, line.UomId, line.UnitPrice, line.TaxRatePercent, null));
+        {
+            if (line.Id.HasValue)
+            {
+                var existing = existingLines[line.Id.Value];
+                existing.ItemId = line.ItemId;
+                existing.Qty = line.Qty;
+                existing.UomId = line.UomId;
+                existing.UnitPrice = 0;
+                existing.TaxRatePercent = 0;
+                existing.TaxAmount = 0;
+                existing.LineTotal = 0;
+            }
+            else o.Lines.Add(ProcurementMappers.BuildLine(o.Id, line.ItemId, line.Qty, line.UomId, 0, 0, null));
+        }
+        if (requirement is not null)
+        {
+            requirement.Status = requirement.Lines.All(line => line.PurchaseOrderLineId.HasValue)
+                ? MaterialRequirementStatuses.Converted : MaterialRequirementStatuses.Approved;
+            requirement.UpdatedAt = _clock.UtcNow;
+            requirement.UpdatedBy = _tenant.UserId;
+        }
 
         o.SubTotal = o.Lines.Sum(l => Math.Round(l.Qty * l.UnitPrice, 4));
         o.TaxAmount = o.Lines.Sum(l => l.TaxAmount);
@@ -518,9 +575,32 @@ public sealed class PurchaseOrderService : IPurchaseOrderService
         return await SaveStatusAsync(o, ct, AuditActions.Reject);
     }
 
-    public async Task<PurchaseOrderResponse> MarkOrderedAsync(Guid id, CancellationToken ct = default)
+    public async Task<PurchaseOrderResponse> MarkOrderedAsync(Guid id, MarkPurchaseOrderOrderedRequest request, CancellationToken ct = default)
     {
         var o = await RequireStatusAsync(id, PurchaseOrderStatuses.Approved, ct);
+        if (request.RowVersion is not null && request.RowVersion != Convert.ToBase64String(o.RowVersion))
+            throw new ConcurrencyException();
+        if (!await _suppliers.ExistsAsync(_tenant.OrganizationId, request.SupplierId, ct))
+            throw new ConflictException("Supplier does not belong to the organization.");
+        if (request.Lines.Count != o.Lines.Count || request.Lines.Select(line => line.LineId).Distinct().Count() != o.Lines.Count
+            || request.Lines.Any(line => o.Lines.All(existing => existing.Id != line.LineId) || line.UnitPrice <= 0
+                || line.TaxRatePercent < 0 || line.TaxRatePercent > 100))
+            throw new ConflictException("Provide a positive price and valid tax rate for every purchase order line.");
+        foreach (var line in o.Lines)
+        {
+            var price = request.Lines.Single(entry => entry.LineId == line.Id);
+            line.UnitPrice = price.UnitPrice;
+            line.TaxRatePercent = price.TaxRatePercent;
+            line.TaxAmount = Math.Round(line.Qty * line.UnitPrice * line.TaxRatePercent / 100m, 4);
+            line.LineTotal = Math.Round(line.Qty * line.UnitPrice, 4) + line.TaxAmount;
+        }
+        o.SupplierId = request.SupplierId;
+        o.OrderDate = request.OrderDate ?? DateOnly.FromDateTime(_clock.UtcNow);
+        o.ExpectedDate = request.ExpectedDate;
+        o.CurrencyCode = request.CurrencyCode;
+        o.SubTotal = o.Lines.Sum(line => Math.Round(line.Qty * line.UnitPrice, 4));
+        o.TaxAmount = o.Lines.Sum(line => line.TaxAmount);
+        o.TotalAmount = o.SubTotal + o.TaxAmount;
         o.Status = PurchaseOrderStatuses.Ordered;
         return await SaveStatusAsync(o, ct);
     }

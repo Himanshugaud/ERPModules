@@ -83,6 +83,78 @@ async function save(wb: Awaited<ReturnType<typeof buildWorkbook>>, fileName: str
 
 const safe = (s: string) => s.replace(/[\\/:*?"<>|]+/g, "").trim() || "Requirement Sheet";
 
+export type PurchaseOrderSheetLine = { itemId: string; qty: number };
+
+export async function purchaseOrderXlsxFile(lines: PurchaseOrderSheetLine[], items: InventoryItem[], title = "Purchase Order"): Promise<File> {
+  const byId = new Map(items.map(item => [item.id, item]));
+  const rows: ExportRow[] = lines.length
+    ? lines.map(line => {
+      const item = byId.get(line.itemId);
+      if (!item) throw new Error("An item in this draft is no longer available. Reload the item list before exporting.");
+      if (!Number.isFinite(line.qty) || line.qty <= 0) throw new Error("Every exported item must have a positive quantity.");
+      return { section: "Materials", code: item.code, name: item.name, unit: "", qty: line.qty };
+    })
+    : items.map(item => ({ section: "Materials", code: item.code, name: item.name, unit: "" }));
+  const workbook = await buildWorkbook(lines.length ? title : "Purchase Order Template", "", [], rows);
+  workbook.eachSheet(sheet => sheet.eachRow(row => row.eachCell(cell => { cell.font = { ...cell.font, name: "Calibri" }; })));
+  return new File([await toBlob(workbook)], `${safe(title)}${lines.length ? "" : "_Template"}.xlsx`, { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+}
+
+export async function downloadPurchaseOrderXlsx(lines: PurchaseOrderSheetLine[], items: InventoryItem[], title?: string) {
+  const file = await purchaseOrderXlsxFile(lines, items, title);
+  downloadBlob(file, file.name);
+}
+
+export async function parsePurchaseOrderXlsx(file: File, items: InventoryItem[]): Promise<PurchaseOrderSheetLine[]> {
+  const ExcelJS = await excel();
+  const workbook = new ExcelJS.Workbook();
+  try { await workbook.xlsx.load(await file.arrayBuffer()); }
+  catch { throw new Error("Unable to read this workbook. Upload a valid .xlsx Excel file."); }
+  const sheet = workbook.worksheets[0];
+  if (!sheet) throw new Error("The workbook has no sheets.");
+  let headerRow = 0;
+  let codeColumn = 0;
+  let nameColumn = 0;
+  let quantityColumn = 0;
+  sheet.eachRow(row => {
+    if (headerRow) return;
+    let code = 0;
+    let name = 0;
+    let quantity = 0;
+    row.eachCell((cell, column) => {
+      const text = cellText(cell.value);
+      if (/^(item code|code)$/i.test(text)) code = column;
+      if (/^(item( name)?|description)$/i.test(text)) name = column;
+      if (/^(qty|quantity)$/i.test(text)) quantity = column;
+    });
+    if ((code || name) && quantity) { headerRow = row.number; codeColumn = code; nameColumn = name; quantityColumn = quantity; }
+  });
+  if (!headerRow) throw new Error("The sheet must contain Item Code (or Item Name) and Qty (or Quantity) columns.");
+  const byCode = new Map(items.map(item => [item.code.trim().toLowerCase(), item]));
+  const lines = new Map<string, PurchaseOrderSheetLine>();
+  const errors: string[] = [];
+  for (let rowNumber = headerRow + 1; rowNumber <= sheet.rowCount; rowNumber++) {
+    const row = sheet.getRow(rowNumber);
+    if (row.getCell(quantityColumn).isMerged) continue;
+    const rawQuantity = row.getCell(quantityColumn).value;
+    if (rawQuantity == null || rawQuantity === "") continue;
+    const label = cellText(row.getCell(codeColumn || nameColumn).value);
+    const quantity = cellNumber(rawQuantity);
+    if (!label || quantity == null || quantity <= 0 || Math.abs(quantity - Math.round(quantity * 10000) / 10000) > 1e-8) {
+      errors.push(`Row ${rowNumber}: enter an item and a positive quantity with at most four decimal places.`);
+      continue;
+    }
+    const matches = codeColumn ? [] : items.filter(item => item.name.trim().toLowerCase() === label.toLowerCase());
+    const item = byCode.get(label.toLowerCase()) ?? (matches.length === 1 ? matches[0] : undefined);
+    if (!item) { errors.push(`Row ${rowNumber}: item '${label}' is unknown or ambiguous. Use its Item Code.`); continue; }
+    const previous = lines.get(item.id)?.qty ?? 0;
+    lines.set(item.id, { itemId: item.id, qty: Math.round((previous + quantity) * 10000) / 10000 });
+  }
+  if (errors.length) throw new Error(errors.slice(0, 5).join(" ") + (errors.length > 5 ? ` (${errors.length - 5} more errors.)` : ""));
+  if (!lines.size) throw new Error("Enter a positive quantity for at least one item in the workbook.");
+  return [...lines.values()];
+}
+
 export interface ExportContext {
   orgName: string;
   projectName: string;

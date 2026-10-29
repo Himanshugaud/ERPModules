@@ -299,7 +299,7 @@ BEGIN
         Id             UNIQUEIDENTIFIER NOT NULL CONSTRAINT PK_PurchaseOrders PRIMARY KEY DEFAULT NEWSEQUENTIALID(),
         OrganizationId UNIQUEIDENTIFIER NOT NULL,
         PoNumber       NVARCHAR(50)     NOT NULL,
-        SupplierId     UNIQUEIDENTIFIER NOT NULL,
+        SupplierId     UNIQUEIDENTIFIER NULL,
         Status         NVARCHAR(30)     NOT NULL CONSTRAINT DF_PurchaseOrders_Status DEFAULT N'DRAFT',
         OrderDate      DATE             NULL,
         ExpectedDate   DATE             NULL,

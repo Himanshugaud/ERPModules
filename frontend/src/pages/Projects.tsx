@@ -35,6 +35,7 @@ export default function Projects() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [attachFor, setAttachFor] = useState<Project | null>(null);
   const [searchInput, setSearchInput] = useState(q);
@@ -75,6 +76,7 @@ export default function Projects() {
 
   async function loadProjects() {
     setLoading(true);
+    setLoadError(null);
     try {
       const res = await api.projects({
         page, pageSize, search: q, sort,
@@ -83,6 +85,8 @@ export default function Projects() {
       });
       setProjects(res.data);
       setTotal(res.pagination.totalItems);
+    } catch (error) {
+      setLoadError(error instanceof ApiError ? error.message : "Unable to load projects. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -198,6 +202,11 @@ export default function Projects() {
                   ))}
                 </tr>
               ))
+            ) : loadError ? (
+              <tr><td colSpan={7}><div className="empty" role="alert">
+                <p>{loadError}</p>
+                <button className="btn" onClick={() => void loadProjects()}>Retry</button>
+              </div></td></tr>
             ) : projects.length === 0 ? (
               <tr><td colSpan={7}><div className="empty">No projects match your filters.{activeChips.length > 0 ? " Try clearing some filters." : ""}</div></td></tr>
             ) : (

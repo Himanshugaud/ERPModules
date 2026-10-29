@@ -1,20 +1,25 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
-import { api, ApiError, type InventoryItem, type Warehouse, type StockLevel, type StockMovement, type PurchaseOrder, type Supplier, type Uom } from "../api/client";
+import { useSearchParams } from "react-router-dom";
+import { api, ApiError, type InventoryItem, type Warehouse, type StockLevel, type StockMovement, type PurchaseOrder, type Supplier, type Uom, type InventoryDocument } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { formatDate } from "../lib/ui";
 
-type Tab = "levels" | "low" | "movements";
+type Tab = "levels" | "low" | "movements" | "receipts";
 type TxnKind = "issue" | "transfer" | "adjust";
 const money = (n: number) => n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const MOVE_TYPES = ["RECEIPT", "ISSUE", "TRANSFER_IN", "TRANSFER_OUT", "ADJUSTMENT", "PRODUCTION_IN", "CONSUMPTION", "RETURN_IN", "RETURN_OUT", "SCRAP", "OPENING_BALANCE"];
 
 export default function InventoryStock() {
+  const [params, setParams] = useSearchParams();
+  const receivePoId = params.get("receivePo") ?? "";
   const { user } = useAuth();
   const perms = user?.permissions ?? [];
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [levels, setLevels] = useState<StockLevel[]>([]);
   const [movements, setMovements] = useState<StockMovement[]>([]);
+  const [receipts, setReceipts] = useState<InventoryDocument[]>([]);
+  const [busyReceipt, setBusyReceipt] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>("levels");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -45,6 +50,8 @@ export default function InventoryStock() {
         setLevels((await api.stock({ pageSize: 200, itemId: fItem || undefined, warehouseId: fWarehouse || undefined })).data);
       else if (tab === "low")
         setLevels((await api.lowStock({ pageSize: 200, warehouseId: fWarehouse || undefined })).data);
+      else if (tab === "receipts")
+        setReceipts((await api.goodsReceipts({ status: "PENDING_APPROVAL", pageSize: 100 })).data);
       else
         setMovements((await api.stockMovements({
           pageSize: 100,
@@ -62,6 +69,23 @@ export default function InventoryStock() {
   }
 
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [tab, fItem, fWarehouse, fType, fFrom, fTo]);
+  useEffect(() => { if (receivePoId && perms.includes("goodsreceipt.create")) setTxn("receive"); }, [receivePoId]);
+
+  function closeReceipt() {
+    setTxn(null);
+    if (receivePoId) { const next = new URLSearchParams(params); next.delete("receivePo"); setParams(next, { replace: true }); }
+  }
+
+  async function approveReceipt(receipt: InventoryDocument, approve: boolean) {
+    setBusyReceipt(receipt.id);
+    setError(null);
+    try {
+      if (approve) await api.approveGoodsReceipt(receipt.id);
+      else await api.rejectGoodsReceipt(receipt.id);
+      await load();
+    } catch (err) { setError(err instanceof ApiError ? err.message : "Unable to update the receipt."); }
+    finally { setBusyReceipt(null); }
+  }
 
   function clearFilters() {
     setFItem(""); setFWarehouse(""); setFType(""); setFFrom(""); setFTo("");
@@ -97,9 +121,9 @@ export default function InventoryStock() {
 
       <div className="topbar" style={{ padding: 0, border: "none", background: "none", marginBottom: 12 }}>
         <div className="tabs">
-          {(["levels", "low", "movements"] as Tab[]).map((t) => (
+          {(["levels", "low", "movements", ...(perms.includes("goodsreceipt.read") ? ["receipts"] : [])] as Tab[]).map((t) => (
             <span key={t} className={`tab ${tab === t ? "active" : ""}`} style={{ cursor: "pointer" }} onClick={() => setTab(t)}>
-              {t === "levels" ? "Stock Levels" : t === "low" ? "Low Stock" : "Movements"}
+              {t === "levels" ? "Stock Levels" : t === "low" ? "Low Stock" : t === "receipts" ? "Receipts to approve" : "Movements"}
             </span>
           ))}
         </div>
@@ -132,7 +156,14 @@ export default function InventoryStock() {
       {error && <div className="form-error" style={{ marginBottom: 12 }}>{error}</div>}
 
       <div className="table-wrap">
-        {tab === "movements" ? (
+        {tab === "receipts" ? (
+          <table><thead><tr><th>Receipt #</th><th>PO #</th><th>Warehouse</th><th>Status</th><th></th></tr></thead><tbody>
+            {loading ? <tr><td colSpan={5}><div className="empty">Loading...</div></td></tr> : receipts.length === 0 ? <tr><td colSpan={5}><div className="empty">No receipts waiting for approval.</div></td></tr> : receipts.map(receipt => <tr key={receipt.id}>
+              <td>{receipt.number}</td><td>{receipt.reference}</td><td>{whMap.get(receipt.warehouseId ?? "") ?? "—"}</td><td><span className="badge amber">Pending approval</span></td>
+              <td>{perms.includes("purchaseorder.approve") && <div className="row-actions"><button className="btn btn-sm primary" disabled={busyReceipt === receipt.id} onClick={() => approveReceipt(receipt, true)}>Approve &amp; add to stock</button><button className="btn btn-sm danger" disabled={busyReceipt === receipt.id} onClick={() => approveReceipt(receipt, false)}>Reject</button></div>}</td>
+            </tr>)}
+          </tbody></table>
+        ) : tab === "movements" ? (
           <table>
             <thead><tr><th>Date</th><th>Item</th><th>Warehouse</th><th>Type</th><th>Dir</th><th>Qty</th><th>Unit Cost</th><th>Value</th></tr></thead>
             <tbody>
@@ -181,8 +212,9 @@ export default function InventoryStock() {
         <GoodsReceiptModal
           items={items}
           warehouses={warehouses}
-          onClose={() => setTxn(null)}
-          onSaved={async () => { setTxn(null); await load(); }}
+          initialPoId={receivePoId}
+          onClose={closeReceipt}
+          onSaved={async () => { closeReceipt(); setTab("receipts"); if (tab === "receipts") await load(); }}
         />
       ) : txn && (
         <TxnModal
@@ -199,7 +231,7 @@ export default function InventoryStock() {
 
 interface LineRow { itemId: string; qty: string; unitCost: string; batchNo: string }
 
-const RECEIVABLE_PO_STATUSES = ["APPROVED", "ORDERED", "PARTIALLY_RECEIVED"];
+const RECEIVABLE_PO_STATUSES = ["ORDERED", "PARTIALLY_RECEIVED"];
 
 interface ReceiveRow {
   lineId: string;
@@ -213,7 +245,7 @@ interface ReceiveRow {
   batchNo: string;
 }
 
-function GoodsReceiptModal(props: { items: InventoryItem[]; warehouses: Warehouse[]; onClose: () => void; onSaved: () => void }) {
+function GoodsReceiptModal(props: { items: InventoryItem[]; warehouses: Warehouse[]; initialPoId?: string; onClose: () => void; onSaved: () => void }) {
   const [pos, setPos] = useState<PurchaseOrder[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [uoms, setUoms] = useState<Uom[]>([]);
@@ -238,16 +270,18 @@ function GoodsReceiptModal(props: { items: InventoryItem[]; warehouses: Warehous
     (async () => {
       try {
         const [poRes, supRes, uomRes] = await Promise.all([
-          api.purchaseOrders({ pageSize: 100 }),
+          Promise.all(RECEIVABLE_PO_STATUSES.map(status => api.allPurchaseOrders({ status }))).then(results => results.flat()),
           api.suppliers({ pageSize: 100 }),
           api.uoms()
         ]);
-        setPos(poRes.data);
+        setPos(poRes);
         setSuppliers(supRes.data);
         setUoms(uomRes);
-        const receivable = poRes.data.filter((p) => RECEIVABLE_PO_STATUSES.includes(p.status));
-        if (receivable.length === 0) setMode("manual");
-        else setPoId(receivable[0].id);
+        const receivable = poRes.filter((p) => RECEIVABLE_PO_STATUSES.includes(p.status));
+        if (props.initialPoId && !receivable.some(po => po.id === props.initialPoId)) setError("This PO is not ordered or has no outstanding receipt.");
+        else setPoId(props.initialPoId || receivable[0]?.id || "");
+      } catch (err) {
+        setError(err instanceof ApiError ? err.message : "Unable to load ordered purchase orders.");
       } finally {
         setRefsLoaded(true);
       }
@@ -257,11 +291,11 @@ function GoodsReceiptModal(props: { items: InventoryItem[]; warehouses: Warehous
   useEffect(() => {
     if (!selectedPo) { setRows([]); return; }
     setPoReference(selectedPo.poNumber);
-    if (selectedPo.warehouseId) setWarehouseId(selectedPo.warehouseId);
+    setWarehouseId(selectedPo.warehouseId ?? props.warehouses[0]?.id ?? "");
     setRows(
       selectedPo.lines
         .map((l) => {
-          const remaining = Math.round((l.qty - l.qtyReceived) * 100) / 100;
+          const remaining = Math.round((l.qty - l.qtyReceived) * 10000) / 10000;
           return {
             lineId: l.id,
             itemId: l.itemId,
@@ -277,7 +311,7 @@ function GoodsReceiptModal(props: { items: InventoryItem[]; warehouses: Warehous
         .filter((r) => r.remainingQty > 0)
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [poId, pos]);
+  }, [poId, pos, props.warehouses]);
 
   const setRow = (i: number, k: keyof ReceiveRow, v: string) =>
     setRows((rs) => rs.map((r, idx) => (idx === i ? { ...r, [k]: v } : r)));
@@ -301,6 +335,7 @@ function GoodsReceiptModal(props: { items: InventoryItem[]; warehouses: Warehous
 
     if (mode === "po") {
       if (!selectedPo) { setError("Select a purchase order."); return; }
+      if (rows.some(row => Number(row.receiveQty) < 0 || Number(row.receiveQty) > row.remainingQty)) { setError("Received quantity cannot exceed the outstanding ordered quantity."); return; }
       const valid = rows.filter((r) => Number(r.receiveQty) > 0);
       if (!valid.length) { setError("Enter a receiving quantity for at least one item."); return; }
       lines = valid.map((r) => ({ itemId: r.itemId, qty: Number(r.receiveQty), unitCost: Number(r.unitCost || 0), batchNo: r.batchNo || undefined }));
@@ -320,7 +355,7 @@ function GoodsReceiptModal(props: { items: InventoryItem[]; warehouses: Warehous
         warehouseId,
         poReference: poRefValue,
         purchaseOrderId,
-        supplierId: selectedPo?.supplierId,
+        supplierId: mode === "po" ? selectedPo?.supplierId : undefined,
         receivedDate: receivedDate || undefined,
         lines
       });
@@ -334,7 +369,7 @@ function GoodsReceiptModal(props: { items: InventoryItem[]; warehouses: Warehous
 
   return (
     <div className="modal-overlay" onClick={props.onClose}>
-      <form className="modal" onClick={(e) => e.stopPropagation()} onSubmit={submit} style={{ width: 860, maxWidth: "95vw" }}>
+      <form className="modal procurement-modal" onClick={(e) => e.stopPropagation()} onSubmit={submit} style={{ width: "min(860px, calc(100vw - 40px))" }}>
         <div className="modal-head">
           <h3>Goods Receipt</h3>
           <button type="button" className="icon-btn" onClick={props.onClose}>✕</button>
@@ -342,7 +377,7 @@ function GoodsReceiptModal(props: { items: InventoryItem[]; warehouses: Warehous
         <div className="modal-body">
           {error && <div className="form-error">{error}</div>}
 
-          {refsLoaded && receivablePos.length > 0 && (
+          {refsLoaded && (
             <div className="tabs" style={{ marginBottom: 12 }}>
               <span className={`tab ${mode === "po" ? "active" : ""}`} style={{ cursor: "pointer" }} onClick={() => setMode("po")}>Against Purchase Order</span>
               <span className={`tab ${mode === "manual" ? "active" : ""}`} style={{ cursor: "pointer" }} onClick={() => setMode("manual")}>Manual Receipt</span>
@@ -351,17 +386,17 @@ function GoodsReceiptModal(props: { items: InventoryItem[]; warehouses: Warehous
 
           {mode === "po" ? (
             <>
-              <div className="muted" style={{ fontSize: 12, marginBottom: 10 }}>Receipts against a purchase order update stock only after they are approved (Purchase Orders → Receipts to approve).</div>
+              <div className="muted" style={{ fontSize: 12, marginBottom: 10 }}>Receipts against a purchase order update stock only after they are approved.</div>
               <div className="row2">
                 <div className="field"><label>Purchase Order *</label>
                   <select value={poId} onChange={(e) => setPoId(e.target.value)} required>
                     <option value="">Select a purchase order…</option>
                     {receivablePos.map((p) => (
-                      <option key={p.id} value={p.id}>{p.poNumber} — {supplierMap.get(p.supplierId)?.name ?? "Unknown supplier"} ({p.status})</option>
+                      <option key={p.id} value={p.id}>{p.poNumber} — {supplierMap.get(p.supplierId ?? "")?.name ?? "Unknown supplier"} ({p.status})</option>
                     ))}
                   </select>
                   {refsLoaded && receivablePos.length === 0 && (
-                    <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>No purchase orders are awaiting receipt — use Manual Receipt below.</div>
+                    <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>No ordered purchase orders are awaiting receipt.</div>
                   )}
                 </div>
                 <div className="field"><label>Warehouse *</label>
@@ -402,8 +437,8 @@ function GoodsReceiptModal(props: { items: InventoryItem[]; warehouses: Warehous
                                 <td>{r.orderedQty} {uom}</td>
                                 <td>{r.receivedQty} {uom}</td>
                                 <td>{r.remainingQty} {uom}</td>
-                                <td><input type="number" step="0.01" min="0" style={{ width: 90 }} value={r.receiveQty} onChange={(e) => setRow(i, "receiveQty", e.target.value)} /></td>
-                                <td><input type="number" step="0.01" min="0" style={{ width: 90 }} value={r.unitCost} onChange={(e) => setRow(i, "unitCost", e.target.value)} /></td>
+                                <td><input type="number" step="0.0001" min="0" max={r.remainingQty} style={{ width: 90 }} value={r.receiveQty} onChange={(e) => setRow(i, "receiveQty", e.target.value)} /></td>
+                                <td>{money(Number(r.unitCost))}</td>
                                 <td><input placeholder="Batch#" style={{ width: 90 }} value={r.batchNo} onChange={(e) => setRow(i, "batchNo", e.target.value)} /></td>
                                 <td>₹{money(amount)}</td>
                               </tr>
