@@ -118,6 +118,7 @@ public sealed class GoodsReceiptConfiguration : IEntityTypeConfiguration<GoodsRe
         b.HasKey(x => x.Id);
         b.Property(x => x.GrnNumber).HasMaxLength(50);
         b.Property(x => x.PoReference).HasMaxLength(50);
+        b.Property(x => x.Status).IsConcurrencyToken();
         b.HasMany(x => x.Lines).WithOne().HasForeignKey(l => l.GoodsReceiptId);
     }
 }
@@ -171,6 +172,7 @@ public sealed class StockTransferConfiguration : IEntityTypeConfiguration<StockT
         b.Property(x => x.DriverName).HasMaxLength(150);
         b.Property(x => x.DriverPhone).HasMaxLength(30);
         b.Property(x => x.DispatchNotes).HasMaxLength(500);
+        b.Property(x => x.Status).IsConcurrencyToken();
         b.HasMany(x => x.Lines).WithOne().HasForeignKey(l => l.StockTransferId);
     }
 }

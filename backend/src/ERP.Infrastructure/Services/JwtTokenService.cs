@@ -26,7 +26,7 @@ public sealed class JwtTokenService : IJwtTokenService
 
     public (string Token, DateTime ExpiresAt) Generate(
         Guid userId, Guid organizationId, string? organizationName, string? email, string? name,
-        IEnumerable<string> roles, IEnumerable<string> permissions)
+        IEnumerable<string> roles, IEnumerable<string> permissions, string? credentialVersion = null)
     {
         var now = DateTime.UtcNow;
         var expires = now.AddHours(_lifetimeHours);
@@ -40,6 +40,7 @@ public sealed class JwtTokenService : IJwtTokenService
         if (!string.IsNullOrEmpty(email)) claims.Add(new Claim("email", email));
         if (!string.IsNullOrEmpty(name)) claims.Add(new Claim("name", name));
         if (!string.IsNullOrEmpty(organizationName)) claims.Add(new Claim("orgName", organizationName));
+        if (!string.IsNullOrEmpty(credentialVersion)) claims.Add(new Claim("credentialVersion", credentialVersion));
         claims.AddRange(roles.Select(r => new Claim("roles", r)));
         claims.AddRange(permissions.Select(p => new Claim("permissions", p)));
 

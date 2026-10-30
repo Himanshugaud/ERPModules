@@ -1,0 +1,106 @@
+name: Production Readiness
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    env:
+      AZURE_FUNCTIONS_ENVIRONMENT: Production
+      ERP_DevAuthEnabled: "false"
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Scan Git history for secrets
+        shell: pwsh
+        run: |
+          $archive = Join-Path $env:RUNNER_TEMP 'gitleaks-8.30.1.zip'
+          Invoke-WebRequest -Uri 'https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_windows_x64.zip' -OutFile $archive
+          $expected = 'd29144deff3a68aa93ced33dddf84b7fdc26070add4aa0f4513094c8332afc4e'
+          if ((Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expected) {
+            throw 'Gitleaks archive checksum mismatch.'
+          }
+          $tools = Join-Path $env:RUNNER_TEMP 'gitleaks-8.30.1'
+          Expand-Archive -LiteralPath $archive -DestinationPath $tools
+          New-Item -ItemType Directory -Path TestResults -Force | Out-Null
+          & (Join-Path $tools 'gitleaks.exe') git . --log-opts=--all --redact=100 --no-banner --log-level=error --report-format json --report-path TestResults/audit-secrets-history.json
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Secret scan failed or found potential credentials. Review the redacted report.'
+          }
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9
+        with:
+          dotnet-version: 9.0.x
+      - name: Restore backend
+        run: dotnet restore backend/ERP.sln -p:NuGetAudit=true -p:NuGetAuditMode=all -p:NuGetAuditLevel=high -p:TreatWarningsAsErrors=true
+      - name: Build with analyzers
+        run: dotnet build backend/ERP.sln --configuration Release --no-restore -p:RunAnalyzers=true
+      - name: Database-free regressions
+        run: dotnet test backend/ERP.sln --configuration Release --no-build --filter "Category!=SqlServer" --logger "trx;LogFileName=unit.trx" --results-directory TestResults
+      - name: Require running isolated LocalDB
+        shell: pwsh
+        run: |
+          $localDb = Get-Command SqlLocalDB -ErrorAction Stop
+          if (-not ((& $localDb.Source info) -contains 'MSSQLLocalDB')) {
+            & $localDb.Source create MSSQLLocalDB
+          }
+          & $localDb.Source start MSSQLLocalDB
+          $details = & $localDb.Source info MSSQLLocalDB
+          if (-not ($details -match '^\s*State:\s+Running\s*$')) {
+            throw 'LocalDB is unavailable. SQL integration tests must not be skipped.'
+          }
+      - name: Real SQL concurrency regressions
+        run: dotnet test backend/ERP.sln --configuration Release --no-build --filter "Category=SqlServer" --logger "trx;LogFileName=sql.trx" --results-directory TestResults
+      - name: Preserve test evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: backend-verification-results
+          path: |
+            TestResults/**/*.trx
+            TestResults/audit-secrets-history.json
+          if-no-files-found: warn
+
+  node-projects:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        project: [".", "frontend"]
+    defaults:
+      run:
+        working-directory: ${{ matrix.project }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: ${{ matrix.project }}/package-lock.json
+      - name: Install locked dependencies without lifecycle scripts
+        run: npm ci --ignore-scripts
+      - name: Typecheck frontend
+        if: matrix.project == 'frontend'
+        run: npx --no-install tsc --noEmit --project tsconfig.json
+      - name: Build
+        run: npm run build
+      - name: Node regression tests
+        run: npm test
+      - name: Block High and Critical dependency advisories
+        if: ${{ !cancelled() }}
+        run: npm audit --audit-level=high

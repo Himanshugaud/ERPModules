@@ -26,6 +26,7 @@ node_modules
 dist
 
 # Deployment artifacts
+.copilot-azure/
 frontend_deploy.zip
 *.zip
 

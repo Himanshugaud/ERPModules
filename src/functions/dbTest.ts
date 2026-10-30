@@ -5,29 +5,26 @@ export async function dbTest(
     request: HttpRequest,
     context: InvocationContext
 ): Promise<HttpResponseInit> {
-    context.log(`DB connectivity test requested: ${request.method} ${request.url}`);
+    context.log("Database connectivity test requested.");
 
     try {
         const pool = await getPool();
-        const result = await pool.request().query(
-            "SELECT DB_NAME() AS databaseName, SUSER_SNAME() AS loginName, GETUTCDATE() AS serverTimeUtc"
-        );
+        await pool.request().query("SELECT 1 AS connected");
 
         return {
             jsonBody: {
-                connected: true,
-                info: result.recordset[0]
+                connected: true
             }
         };
-    } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        context.error(`Database connection failed: ${message}`);
+    } catch {
+        context.error("Database connectivity check failed.");
 
         return {
             status: 500,
             jsonBody: {
                 connected: false,
-                error: message
+                error: "Database connectivity check failed.",
+                traceId: context.invocationId
             }
         };
     }

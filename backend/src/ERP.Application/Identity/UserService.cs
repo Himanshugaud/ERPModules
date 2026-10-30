@@ -28,9 +28,10 @@ public sealed class UserService : IUserService
     private readonly IUnitOfWork _uow;
     private readonly IAuditWriter _audit;
     private readonly IClock _clock;
+    private readonly IDepartmentRepository _departments;
 
     public UserService(IUserRepository users, IRoleRepository roles, ITenantContext tenant,
-        IUnitOfWork uow, IAuditWriter audit, IClock clock)
+        IUnitOfWork uow, IAuditWriter audit, IClock clock, IDepartmentRepository departments)
     {
         _users = users;
         _roles = roles;
@@ -38,6 +39,7 @@ public sealed class UserService : IUserService
         _uow = uow;
         _audit = audit;
         _clock = clock;
+        _departments = departments;
     }
 
     public async Task<PagedResult<UserResponse>> ListAsync(UserFilter filter, CancellationToken ct = default)
@@ -62,6 +64,8 @@ public sealed class UserService : IUserService
     public async Task<UserResponse> CreateAsync(CreateUserRequest request, CancellationToken ct = default)
     {
         var orgId = _tenant.OrganizationId;
+        if (request.DepartmentId.HasValue && !await _departments.ExistsAsync(orgId, request.DepartmentId.Value, ct))
+            throw new ConflictException("Department does not belong to the organization.");
         if (await _users.EmailExistsAsync(orgId, request.Email, null, ct))
             throw new DuplicateEntityException($"A user with email '{request.Email}' already exists.");
         if (await _users.UsernameExistsAsync(orgId, request.Username, null, ct))
@@ -100,6 +104,8 @@ public sealed class UserService : IUserService
         var user = await _users.GetAsync(_tenant.OrganizationId, userId, true, ct)
             ?? throw NotFoundException.For("User", userId);
 
+        if (request.DepartmentId.HasValue && !await _departments.ExistsAsync(_tenant.OrganizationId, request.DepartmentId.Value, ct))
+            throw new ConflictException("Department does not belong to the organization.");
         if (!string.IsNullOrEmpty(request.Username) && request.Username != user.Username)
         {
             if (await _users.UsernameExistsAsync(_tenant.OrganizationId, request.Username, userId, ct))

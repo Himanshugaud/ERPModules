@@ -94,16 +94,19 @@ public sealed class UserRepository : IUserRepository
 
     public async Task<IReadOnlyList<string>> GetPermissionCodesAsync(Guid userId, CancellationToken ct = default) =>
         await (from ur in _db.UserRoles.AsNoTracking()
+               join u in _db.Users.AsNoTracking() on ur.UserId equals u.Id
+               join r in _db.Roles.AsNoTracking() on ur.RoleId equals r.Id
                join rp in _db.RolePermissions.AsNoTracking() on ur.RoleId equals rp.RoleId
                join p in _db.Permissions.AsNoTracking() on rp.PermissionId equals p.Id
-               where ur.UserId == userId && p.IsActive
+               where ur.UserId == userId && u.Status == "ACTIVE" && r.OrganizationId == u.OrganizationId && r.IsActive && p.IsActive
                select p.Code).Distinct().ToListAsync(ct);
 
     public async Task<IReadOnlyList<string>> GetRoleNamesAsync(Guid userId, CancellationToken ct = default) =>
         await (from ur in _db.UserRoles.AsNoTracking()
+             join u in _db.Users.AsNoTracking() on ur.UserId equals u.Id
                join r in _db.Roles.AsNoTracking() on ur.RoleId equals r.Id
-               where ur.UserId == userId
-               select r.Name).ToListAsync(ct);
+             where ur.UserId == userId && u.Status == "ACTIVE" && r.OrganizationId == u.OrganizationId && r.IsActive
+             select r.Name).Distinct().ToListAsync(ct);
 }
 
 public sealed class RoleRepository : IRoleRepository

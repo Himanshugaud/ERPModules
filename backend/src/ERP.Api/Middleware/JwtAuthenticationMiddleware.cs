@@ -1,7 +1,10 @@
 using ERP.Application.Abstractions;
+using ERP.Application.Identity;
+using ERP.Shared.Exceptions;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Middleware;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace ERP.Api.Middleware;
 
@@ -21,8 +24,10 @@ public sealed class JwtAuthenticationMiddleware : IFunctionsWorkerMiddleware
             {
                 var token = header["Bearer ".Length..].Trim();
                 var principal = _jwt.Validate(token);
-                if (principal is not null)
-                    http.User = principal;
+                if (principal is null || !await context.InstanceServices.GetRequiredService<IUserSessionValidator>()
+                    .IsValidAsync(principal, context.CancellationToken))
+                    throw new UnauthorizedException("Session expired or invalid. Please sign in again.");
+                http.User = principal;
             }
         }
         await next(context);

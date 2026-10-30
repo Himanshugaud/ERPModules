@@ -24,7 +24,8 @@ public sealed class CurrentUser : ICurrentUser
     public CurrentUser(IHttpContextAccessor accessor, IConfiguration config)
     {
         var http = accessor.HttpContext;
-        var devEnabled = string.Equals(config["ERP_DevAuthEnabled"], "true", StringComparison.OrdinalIgnoreCase);
+        var devEnabled = string.Equals(config["ERP_DevAuthEnabled"], "true", StringComparison.OrdinalIgnoreCase)
+            && string.Equals(config["AZURE_FUNCTIONS_ENVIRONMENT"], "Development", StringComparison.OrdinalIgnoreCase);
 
         if (http is null)
         {

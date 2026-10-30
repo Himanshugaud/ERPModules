@@ -162,8 +162,8 @@ public sealed class TaskService : ITaskService
         await ValidateReferencesAsync(project, request.StatusId, request.PriorityId, null,
             request.MilestoneId, request.SprintId, ct);
 
-        if (!string.IsNullOrEmpty(request.RowVersion))
-            task.RowVersion = Convert.FromBase64String(request.RowVersion);
+        if (!string.IsNullOrEmpty(request.RowVersion) && request.RowVersion != Convert.ToBase64String(task.RowVersion))
+            throw new ConcurrencyException();
 
         task.Title = request.Title;
         task.Description = request.Description;

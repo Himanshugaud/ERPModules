@@ -54,7 +54,8 @@ public interface IJwtTokenService
         string? email,
         string? name,
         IEnumerable<string> roles,
-        IEnumerable<string> permissions);
+        IEnumerable<string> permissions,
+        string? credentialVersion = null);
 
     System.Security.Claims.ClaimsPrincipal? Validate(string token);
 }

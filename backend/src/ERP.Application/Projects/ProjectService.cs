@@ -115,8 +115,8 @@ public sealed class ProjectService : IProjectService
 
         await ValidateReferencesAsync(request.ClientId, request.ManagerId, request.StatusId, request.PriorityId, ct);
 
-        if (!string.IsNullOrEmpty(request.RowVersion))
-            project.RowVersion = Convert.FromBase64String(request.RowVersion);
+        if (!string.IsNullOrEmpty(request.RowVersion) && request.RowVersion != Convert.ToBase64String(project.RowVersion))
+            throw new ConcurrencyException();
 
         project.Name = request.Name;
         project.Description = request.Description;

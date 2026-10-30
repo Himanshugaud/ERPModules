@@ -122,8 +122,8 @@ public sealed class ItemService : IItemService
         var item = await _items.GetByIdAsync(orgId, id, true, ct) ?? throw NotFoundException.For("Item", id);
         await ValidateReferencesAsync(request.CategoryId, request.BaseUomId, ct);
 
-        if (!string.IsNullOrEmpty(request.RowVersion))
-            item.RowVersion = Convert.FromBase64String(request.RowVersion);
+        if (!string.IsNullOrEmpty(request.RowVersion) && request.RowVersion != Convert.ToBase64String(item.RowVersion))
+            throw new ConcurrencyException();
 
         item.Name = request.Name;
         item.Description = request.Description;
